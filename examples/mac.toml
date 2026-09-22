@@ -1,0 +1,30 @@
+[profiles.official]
+home = "/Users/bytedance/.codex"
+mode = "native"
+managed = false
+enforce_native_login = true
+
+[profiles.cpa]
+management = "external"
+home = "/Users/bytedance/.codex-mac-cpa"
+endpoint = "http://127.0.0.1:8317/v1"
+model = "gpt-5.6-sol"
+provider_name = "cliproxy"
+model_catalog_json = "/Users/bytedance/.codex-mac-cpa/model-catalogs/cliproxy-sota.json"
+env_key = "CLIPROXY_API_KEY"
+auth_command = "/usr/bin/security"
+auth_args = ["find-generic-password", "-a", "bytedance", "-s", "codex-cpa-bridge", "-w"]
+
+[ssh.cpa]
+management = "managed"
+host = "127.0.0.1"
+port = 2223
+user = "bytedance"
+profile = "cpa"
+identity_file = "~/.ssh/id_ed25519"
+
+[runtime]
+state_dir = "/Users/bytedance/.codex-cpa-bridge"
+codex_binary = "/Applications/ChatGPT.app/Contents/Resources/codex"
+codex_install_dir = "/Applications/ChatGPT.app/Contents/Resources"
+app_server_args = ["app-server"]

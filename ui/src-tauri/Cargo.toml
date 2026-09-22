@@ -1,0 +1,17 @@
+[package]
+name = "codex-cpa-bridge-ui"
+version = "0.1.0"
+description = "Codex CPA bridge control plane"
+authors = ["codex-cpa-bridge"]
+edition = "2021"
+
+[lib]
+name = "codex_cpa_bridge_ui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde_json = "1"
+tauri = { version = "2", features = [] }

@@ -1,24 +1,25 @@
 [profiles.official]
-home = "/data00/home/wangyang.49/.codex"
+home = "~/.codex"
 mode = "native"
 managed = false
 enforce_native_login = false
 
 [profiles.cpa]
-home = "/data00/home/wangyang.49/.codex-cpa"
+home = "~/.codex-cpa"
 endpoint = "http://127.0.0.1:8317/v1"
-model = "gpt-5.6-sol"
+model = "YOUR_CPA_MODEL"
 provider_name = "cpa-local"
-auth_command = "/home/wangyang.49/.local/bin/cliproxy-auth-token"
+model_catalog_json = "~/.codex-cpa/model-catalogs/cpa.json"
+env_key = "CPA_API_KEY"
 
 [ssh.cpa]
 host = "127.0.0.1"
 port = 2222
-user = "wangyang.49"
+user = "YOUR_USERNAME"
 profile = "cpa"
-identity_file = "~/.ssh/id_ed25519_byted"
+identity_file = "~/.ssh/id_ed25519"
 
 [runtime]
-state_dir = "/data00/home/wangyang.49/.codex-cpa-bridge"
+state_dir = "~/.codex-cpa-bridge"
 codex_binary = "codex"
 app_server_args = ["app-server"]

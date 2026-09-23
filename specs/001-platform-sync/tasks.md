@@ -1,0 +1,13 @@
+# Tasks
+
+- [x] Discover Codex, Claude and xbot config sources with a read-only JSON report.
+- [x] Implement Codex and Claude sync preview, backups, apply, and idempotency for already-CPA-backed configs.
+- [ ] Add explicit initialization for missing Codex/Claude configs with safe auth sources. Host manifest discovery, fresh model-catalog bootstrap, and missing Claude settings preview/apply are implemented; actual Anthropic compatibility and runtime authentication still need verification on a compatible CPA host.
+- [ ] Verify xbot runtime picker behavior and integrate a supported authenticated API; schema-gated local DB adapter is implemented but not yet runtime-verified.
+- [x] Confirm the local xbot service exposes a login-protected Web RPC (`POST /api/rpc` returns 401 without a session), so an unauthenticated direct API call cannot replace the DB adapter. Runtime picker verification still needs an authenticated session.
+- [x] Expose platform state and one-click sync in Tauri, including partial failures.
+- [ ] Complete remote SSH installation/recovery automation. Authenticated scan, Linux/amd64 binary upload with backup, manifest discovery, catalog refresh and cross-host visibility sync are implemented and verified on devbox; first-run loopback key repair still requires manual steps.
+- [x] Replace machine-specific example manifests and add CI checks, an MIT license, and vector icon source.
+- [x] Fix forced-command SSH probe detection; live Mac doctor now reports the correct CPA `CODEX_HOME` with zero issues.
+- [ ] Verify the macOS `.app` visually on an unlocked desktop and on a clean machine; WebView DOM startup and sidecar have been verified, but signing/notarization remain unverified.
+- [ ] Complete README and interaction audit against all scenarios in `spec.md`.

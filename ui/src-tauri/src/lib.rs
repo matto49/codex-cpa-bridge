@@ -11,6 +11,7 @@ const UI_PROBE: &str = r#"(() => {
         rootExists: Boolean(root),
         rootChildren: root?.childElementCount ?? -1,
         rootHtml: root?.innerHTML.slice(0, 500) ?? null,
+        bootWatchdog: window.__CPA_BOOT_WATCHDOG__ ?? null,
         bodyText: document.body?.innerText.slice(0, 500) ?? null,
         scripts: Array.from(document.scripts).map((node) => ({ src: node.src, type: node.type })),
         styles: Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map((node) => node.href),
@@ -40,9 +41,7 @@ fn bridge_binary() -> Result<PathBuf, String> {
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() { candidates.push(dir.join("bridge-go")); }
     }
-    if let Ok(home) = env::var("HOME") {
-        candidates.push(PathBuf::from(home).join("codex-cpa-bridge/bin/bridge-go"));
-    }
+    if let Ok(home) = env::var("HOME") { candidates.push(PathBuf::from(home).join(".local/bin/bridge-go")); }
     candidates.into_iter().find(|path| path.is_file()).ok_or_else(|| "bridge-go binary not found; set CODEX_CPA_BRIDGE_BIN".to_string())
 }
 
@@ -77,6 +76,52 @@ fn bridge_doctor(manifest: String) -> Result<Value, String> { run_json(&manifest
 
 #[tauri::command]
 fn bridge_models(manifest: String) -> Result<Value, String> { run_json(&manifest, &["models", "list", "--json"]) }
+
+#[tauri::command]
+fn bridge_catalog_bootstrap(manifest: String, write: bool) -> Result<Value, String> {
+    if write {
+        run_json(&manifest, &["models", "bootstrap", "--write", "--json"])
+    } else {
+        run_json(&manifest, &["models", "bootstrap", "--json"])
+    }
+}
+
+#[tauri::command]
+fn bridge_platforms(manifest: String) -> Result<Value, String> { run_json(&manifest, &["platforms", "scan", "--json"]) }
+
+#[tauri::command]
+fn bridge_platform_plan(manifest: String) -> Result<Value, String> { run_json(&manifest, &["platforms", "plan", "--json"]) }
+
+#[tauri::command]
+fn bridge_platform_sync(manifest: String) -> Result<Value, String> { run_json(&manifest, &["platforms", "sync", "--json"]) }
+
+#[tauri::command]
+fn bridge_claude_init(manifest: String, base_url: String, confirm_protocol: bool, confirm_auth: bool, write: bool) -> Result<Value, String> {
+    let mut args = vec!["platforms", "init-claude", "--base-url", base_url.as_str()];
+    if confirm_protocol { args.push("--confirm-anthropic-compatible"); }
+    if confirm_auth { args.push("--confirm-external-auth"); }
+    if write { args.push("--write"); }
+    args.push("--json");
+    run_json(&manifest, &args)
+}
+
+#[tauri::command]
+fn bridge_init(manifest: String) -> Result<Value, String> { run_json(&manifest, &["init", "--write", "--json"]) }
+
+#[tauri::command]
+fn bridge_remote_scan(manifest: String, target: String) -> Result<Value, String> {
+    run_json(&manifest, &["remote", "scan", "--target", &target, "--json"])
+}
+
+#[tauri::command]
+fn bridge_remote_plan(manifest: String, target: String) -> Result<Value, String> {
+    run_json(&manifest, &["remote", "sync", "--target", &target, "--json"])
+}
+
+#[tauri::command]
+fn bridge_remote_sync(manifest: String, target: String) -> Result<Value, String> {
+    run_json(&manifest, &["remote", "sync", "--target", &target, "--write", "--json"])
+}
 
 #[tauri::command]
 fn bridge_set_model(manifest: String, slug: String, visibility: String) -> Result<String, String> {
@@ -125,11 +170,8 @@ pub fn run() {
             if let Err(error) = webview.eval_with_callback(UI_PROBE, |result| eprintln!("ui probe: {result}")) {
                 eprintln!("ui probe dispatch failed: {error}");
             }
-            if let Err(error) = webview.eval_with_callback(UI_MODULE_PROBE, |result| eprintln!("ui module probe: {result}")) {
-                eprintln!("ui module probe dispatch failed: {error}");
-            }
         })
-        .invoke_handler(tauri::generate_handler![bridge_status, bridge_doctor, bridge_models, bridge_set_model, bridge_action])
+        .invoke_handler(tauri::generate_handler![bridge_status, bridge_doctor, bridge_models, bridge_catalog_bootstrap, bridge_platforms, bridge_platform_plan, bridge_platform_sync, bridge_claude_init, bridge_init, bridge_remote_scan, bridge_remote_plan, bridge_remote_sync, bridge_set_model, bridge_action])
         .run(tauri::generate_context!())
         .expect("error while running Codex CPA Bridge");
 }

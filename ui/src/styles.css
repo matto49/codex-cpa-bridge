@@ -15,7 +15,7 @@ button:disabled { cursor: default; opacity: .48; }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 208px minmax(0, 1fr); }
 .sidebar { position: fixed; inset: 0 auto 0 0; width: 208px; display: flex; flex-direction: column; padding: 22px 14px 16px; border-right: 1px solid #dfe2de; background: #eef0ed; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 28px; font-size: 14px; font-weight: 700; }
-.brand-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; color: white; background: #222827; font-size: 13px; }
+.brand-mark { display: block; width: 26px; height: 26px; border-radius: 6px; }
 .sidebar nav { display: grid; gap: 4px; }
 .sidebar nav button { height: 38px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: 6px; color: #626967; background: transparent; font-size: 13px; text-align: left; }
 .sidebar nav button:hover { background: #e4e7e3; color: #252a29; }
@@ -72,6 +72,16 @@ dd { min-width: 0; margin: 0; overflow: hidden; color: #424946; font-family: ui-
 .check-row svg { color: #a2a8a5; }
 
 .model-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.sync-panel { margin-bottom: 18px; padding: 16px; border: 1px solid #dce0dd; border-radius: 8px; background: #fff; }
+.sync-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 10px; }
+.sync-panel-head h2 { margin: 0 0 4px; font-size: 14px; }
+.sync-panel-head p { color: #747b78; font-size: 11px; }
+.sync-row { display: grid; grid-template-columns: 62px 65px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid #edf0ed; font-size: 11px; }
+.sync-row > span:last-child { color: #626a66; line-height: 1.4; }
+.sync-panel .section-help { margin: 10px 0 0; }
+.platform-state.noop { background: #e6f3eb; color: #17653e; }
+.platform-state.skipped { background: #edf0ee; color: #5d6861; }
+.platform-state.blocked { background: #fff0e9; color: #9b4e2f; }
 .model-toolbar input, .settings-section input { height: 36px; border: 1px solid #d5dad6; border-radius: 6px; outline: 0; background: #fff; color: #2e3432; font-size: 12px; }
 .model-toolbar input { width: 240px; padding: 0 12px; }
 .model-toolbar input:focus, .settings-section input:focus { border-color: #859c90; box-shadow: 0 0 0 3px #e1e8e3; }
@@ -98,7 +108,24 @@ dd { min-width: 0; margin: 0; overflow: hidden; color: #424946; font-family: ui-
 .settings-section h2 { margin-bottom: 16px; }
 .settings-section label span { display: block; margin-bottom: 7px; color: #757c79; font-size: 11px; }
 .settings-section input { width: 100%; padding: 0 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.confirmations { display: grid; gap: 8px; margin-top: 12px; }
+.confirmations label { display: flex; align-items: flex-start; gap: 8px; font-size: 11px; line-height: 1.45; color: #4e5652; }
+.confirmations label span { display: inline; margin: 0; color: inherit; font-size: inherit; }
+.settings-section .confirmations input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; padding: 0; accent-color: #2c7650; }
+.remote-actions { display: flex; gap: 8px; margin: 12px 0; }
+.remote-summary { margin-top: 10px; padding: 11px; border: 1px solid #e4e8e4; border-radius: 6px; background: #fbfcfb; font-size: 11px; }
+.remote-summary strong { display: block; margin-bottom: 5px; }
+.remote-summary span, .remote-summary p, .remote-summary small { display: block; margin-top: 5px; color: #626a66; line-height: 1.5; overflow-wrap: anywhere; }
 .settings-section dl div { grid-template-columns: 120px minmax(0, 1fr); }
+.section-help { margin: -8px 0 12px; color: #747b78; font-size: 11px; line-height: 1.5; }
+.platform-list { display: grid; gap: 8px; }
+.platform-item { padding: 12px; border: 1px solid #e4e8e4; border-radius: 6px; background: #fbfcfb; }
+.platform-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+.platform-state { padding: 3px 7px; border-radius: 4px; background: #f0ece7; color: #8a5d30; font-size: 10px; text-transform: capitalize; }
+.platform-state.ready { background: #e6f3eb; color: #17653e; }
+.platform-item code { display: block; overflow: hidden; color: #626a66; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.platform-item p { margin-top: 6px; color: #4e5652; font-size: 11px; line-height: 1.5; }
+.platform-item small { display: block; margin-top: 6px; color: #858c89; font-size: 10px; }
 .action-section { display: flex; align-items: center; justify-content: space-between; }
 .action-section h2 { margin-bottom: 4px; }
 .action-section p { color: #6e7572; font-size: 11px; }

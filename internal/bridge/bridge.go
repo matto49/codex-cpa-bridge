@@ -32,7 +32,12 @@ type Manifest struct {
 	SSH struct {
 		CPA SSHEndpoint `toml:"cpa"`
 	} `toml:"ssh"`
-	Runtime Runtime `toml:"runtime"`
+	Runtime   Runtime `toml:"runtime"`
+	Platforms struct {
+		ClaudeSettingsJSON string `toml:"claude_settings_json"`
+		XbotConfigJSON     string `toml:"xbot_config_json"`
+		XbotDatabase       string `toml:"xbot_database"`
+	} `toml:"platforms"`
 }
 
 type OfficialProfile struct {
@@ -190,8 +195,16 @@ func DefaultManifest() Manifest {
 
 func LoadManifest(path string) (Manifest, error) {
 	m := DefaultManifest()
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return m, nil
+	if path == "" {
+		path = "bridge.toml"
+	}
+	originalPath := path
+	path = expandPath(path)
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) && originalPath == "bridge.toml" {
+			return m, nil
+		}
+		return Manifest{}, fmt.Errorf("cannot read manifest %s: %w", path, err)
 	}
 	if _, err := toml.DecodeFile(path, &m); err != nil {
 		return Manifest{}, err
@@ -238,6 +251,18 @@ func (m *Manifest) normalize() {
 		m.Runtime.StateDir = "~/.codex-cpa-bridge"
 	}
 	m.Runtime.StateDir = expandPath(m.Runtime.StateDir)
+	if m.Platforms.ClaudeSettingsJSON == "" {
+		m.Platforms.ClaudeSettingsJSON = "~/.claude/settings.json"
+	}
+	if m.Platforms.XbotConfigJSON == "" {
+		m.Platforms.XbotConfigJSON = "~/.xbot/config.json"
+	}
+	if m.Platforms.XbotDatabase == "" {
+		m.Platforms.XbotDatabase = "~/.xbot/xbot.db"
+	}
+	m.Platforms.ClaudeSettingsJSON = expandPath(m.Platforms.ClaudeSettingsJSON)
+	m.Platforms.XbotConfigJSON = expandPath(m.Platforms.XbotConfigJSON)
+	m.Platforms.XbotDatabase = expandPath(m.Platforms.XbotDatabase)
 	if m.Runtime.CodexBinary == "" {
 		m.Runtime.CodexBinary = "codex"
 	}
@@ -964,6 +989,9 @@ func CollectDoctorReport(m Manifest, includeResponsesProbe bool) (DoctorReport, 
 		ManagedConfig: bytes.Contains(cpaContent, []byte(OwnerMarker)),
 		RenderMatches: cpaConfigMatches(m, cpaConfig, cpaContent),
 	}
+	if !report.CPAProfile.ConfigPresent || !report.CPAProfile.RenderMatches {
+		failures++
+	}
 
 	modelsOK, modelsStatus, modelsBody := httpJSON(m.Profiles.CPA.Endpoint+"/models", nil, token, 3*time.Second)
 	report.CPABlackbox.ModelsOK = modelsOK
@@ -989,6 +1017,9 @@ func CollectDoctorReport(m Manifest, includeResponsesProbe bool) (DoctorReport, 
 	sshDetail := ""
 	if portOpen {
 		sshOK, sshDetail = runSSHProbe(m, 5*time.Second)
+		if !sshOK {
+			failures++
+		}
 	} else {
 		failures++
 	}
@@ -999,13 +1030,29 @@ func CollectDoctorReport(m Manifest, includeResponsesProbe bool) (DoctorReport, 
 		PortOpen:              portOpen,
 		BatchProbeOK:          sshOK,
 		RemoteCodexHome:       sshDetail,
-		RemoteHomeNameMatches: sshOK && filepath.Base(sshDetail) == filepath.Base(m.Profiles.CPA.Home),
+		RemoteHomeNameMatches: sshOK && sameFilesystemPath(sshDetail, m.Profiles.CPA.Home),
+	}
+	if sshOK && !report.SSH.RemoteHomeNameMatches {
+		failures++
 	}
 	policyOK := len(report.Official.Problems) == 0
 	configOwnedOrExternal := report.CPAProfile.ManagedConfig || report.CPAProfile.Management == "external"
-	bridgeReady := report.CPAProfile.ConfigPresent && configOwnedOrExternal && report.CPAProfile.RenderMatches && report.CPABlackbox.ModelsOK && report.SSH.PortOpen && report.SSH.BatchProbeOK
+	bridgeReady := report.CPAProfile.ConfigPresent && configOwnedOrExternal && report.CPAProfile.RenderMatches && report.CPABlackbox.ModelsOK && report.SSH.PortOpen && report.SSH.BatchProbeOK && report.SSH.RemoteHomeNameMatches
 	report.Result = ResultReport{OK: failures == 0, Issues: failures, PolicyOK: policyOK, BridgeReady: bridgeReady}
 	return report, failures
+}
+
+func sameFilesystemPath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(a); err == nil {
+		a = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(b); err == nil {
+		b = resolved
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 func PrintDoctorReport(w io.Writer, r DoctorReport) {
@@ -1428,27 +1475,38 @@ func runSSHProbe(m Manifest, timeout time.Duration) (bool, string) {
 	if m.SSH.CPA.IdentityFile != "" {
 		args = append(args, "-i", m.SSH.CPA.IdentityFile)
 	}
-	probeCommand := "__codex_cpa_bridge_probe__"
+	args = append(args, fmt.Sprintf("%s@%s", m.SSH.CPA.User, m.SSH.CPA.Host))
+	commands := []string{"__codex_cpa_bridge_probe__"}
 	if m.SSH.CPA.Management == "external" {
-		probeCommand = `printf '%s\n' "$CODEX_HOME"`
+		// An external endpoint may be an ordinary SSH shell without our ForceCommand.
+		commands = append(commands, `printf '%s\n' "$CODEX_HOME"`)
 	}
-	args = append(args, fmt.Sprintf("%s@%s", m.SSH.CPA.User, m.SSH.CPA.Host), probeCommand)
-	cmd := exec.CommandContext(ctx, "ssh", args...)
-	out, err := cmd.CombinedOutput()
-	output := strings.TrimSpace(string(out))
-	if ctx.Err() == context.DeadlineExceeded {
-		return false, "ssh probe timed out"
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return false, "ssh binary not found"
-	}
-	if err != nil {
-		if output != "" {
-			return false, output
+	lastDetail := "SSH probe returned no CODEX_HOME"
+	for _, probeCommand := range commands {
+		var stderr bytes.Buffer
+		cmd := exec.CommandContext(ctx, "ssh", append(args, probeCommand)...)
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if ctx.Err() == context.DeadlineExceeded {
+			return false, "ssh probe timed out"
 		}
-		return false, err.Error()
+		if errors.Is(err, os.ErrNotExist) {
+			return false, "ssh binary not found"
+		}
+		output := strings.TrimSpace(string(out))
+		if err == nil && filepath.IsAbs(output) && !strings.ContainsAny(output, "\r\n") {
+			return true, output
+		}
+		if err != nil {
+			lastDetail = strings.TrimSpace(stderr.String())
+			if lastDetail == "" {
+				lastDetail = err.Error()
+			}
+		} else {
+			lastDetail = "SSH probe returned no valid CODEX_HOME"
+		}
 	}
-	return true, output
+	return false, lastDetail
 }
 
 func ensureKnownHost(m Manifest) (string, error) {

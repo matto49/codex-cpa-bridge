@@ -1,3 +1,5 @@
 bin/
 ui-app.log
 .DS_Store
+bridge.toml
+.qa/

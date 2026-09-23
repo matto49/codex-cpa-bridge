@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && make -C .. sidecar",
     "frontendDist": "../dist"
   },
   "app": {
@@ -21,5 +21,10 @@
     }],
     "security": { "csp": null }
   },
-  "bundle": { "active": false }
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icons/icon.png"],
+    "externalBin": ["binaries/bridge-go"]
+  }
 }

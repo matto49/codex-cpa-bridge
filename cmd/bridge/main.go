@@ -2,10 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"time"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"time"
 
 	bridge "codex-cpa-bridge/internal/bridge"
 )
@@ -27,14 +28,49 @@ func run(argv []string) int {
 		usage()
 		return 2
 	}
+	cmd := flags.Arg(0)
+	args := flags.Args()[1:]
+	if cmd == "init" {
+		fs := flag.NewFlagSet("init", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		write := fs.Bool("write", false, "create a manifest at --manifest after discovery")
+		refresh := fs.Bool("refresh", false, "back up and refresh a bridge-generated manifest from host discovery")
+		jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+		if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+			return 2
+		}
+		if *write && *refresh {
+			fmt.Fprintln(os.Stderr, "bridge init: --write and --refresh are mutually exclusive")
+			return 2
+		}
+		var report bridge.InitReport
+		var err error
+		if *refresh {
+			report, err = bridge.RefreshHostManifest(*manifestPath)
+		} else {
+			report, err = bridge.InitManifestFromHost(*manifestPath, *write)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bridge init: %v\n", err)
+			return 1
+		}
+		if *jsonOut {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(report); err != nil {
+				return 1
+			}
+		} else {
+			fmt.Printf("%s %s from %s\n", report.Action, report.ManifestPath, report.ProfilePath)
+		}
+		return 0
+	}
 	m, err := bridge.LoadManifest(*manifestPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bridge: %v\n", err)
 		return 1
 	}
 
-	cmd := flags.Arg(0)
-	args := flags.Args()[1:]
 	switch cmd {
 	case "render":
 		fs := flag.NewFlagSet("render", flag.ContinueOnError)
@@ -177,10 +213,83 @@ func run(argv []string) int {
 
 	case "models":
 		if len(args) == 0 {
-			fmt.Fprintln(os.Stderr, "bridge models: expected list or set")
+			fmt.Fprintln(os.Stderr, "bridge models: expected bootstrap, refresh, list, set or policy")
 			return 2
 		}
 		switch args[0] {
+		case "bootstrap":
+			fs := flag.NewFlagSet("models bootstrap", flag.ContinueOnError)
+			fs.SetOutput(os.Stderr)
+			write := fs.Bool("write", false, "create a missing model catalog from CPA metadata")
+			jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+			if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+				return 2
+			}
+			report, err := bridge.BootstrapModelCatalog(m, *write)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bridge models bootstrap: %v\n", err)
+				return 1
+			}
+			if *jsonOut {
+				return printJSON(report)
+			}
+			fmt.Printf("%s model catalog %s with %d CPA models\n", report.Action, report.Path, report.CPAModels)
+			return 0
+		case "refresh":
+			fs := flag.NewFlagSet("models refresh", flag.ContinueOnError)
+			fs.SetOutput(os.Stderr)
+			jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+			if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+				return 2
+			}
+			report, err := bridge.RefreshModelCatalog(m)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bridge models refresh: %v\n", err)
+				return 1
+			}
+			if *jsonOut {
+				return printJSON(report)
+			}
+			fmt.Printf("CPA catalog: %d models, %d added; backup: %s\n", report.CPAModels, len(report.Added), report.Backup)
+			return 0
+		case "policy":
+			if len(args) < 2 || len(args) > 2 {
+				fmt.Fprintln(os.Stderr, "bridge models policy: expected export, plan or apply")
+				return 2
+			}
+			if args[1] == "export" {
+				policy, err := bridge.ExportModelPolicy(m)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "bridge models policy export: %v\n", err)
+					return 1
+				}
+				return printJSON(policy)
+			}
+			if args[1] != "plan" && args[1] != "apply" {
+				fmt.Fprintln(os.Stderr, "bridge models policy: expected export, plan or apply")
+				return 2
+			}
+			raw, err := io.ReadAll(io.LimitReader(os.Stdin, 10*1024*1024+1))
+			if err != nil || len(raw) > 10*1024*1024 {
+				fmt.Fprintln(os.Stderr, "bridge models policy: input exceeds 10 MiB or cannot be read")
+				return 1
+			}
+			var policy bridge.VisibilityPolicy
+			if err := json.Unmarshal(raw, &policy); err != nil {
+				fmt.Fprintf(os.Stderr, "bridge models policy: invalid JSON: %v\n", err)
+				return 1
+			}
+			var report bridge.ModelPolicyReport
+			if args[1] == "plan" {
+				report, err = bridge.PlanModelPolicy(m, policy)
+			} else {
+				report, err = bridge.ApplyModelPolicy(m, policy)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bridge models policy %s: %v\n", args[1], err)
+				return 1
+			}
+			return printJSON(report)
 		case "list":
 			fs := flag.NewFlagSet("models list", flag.ContinueOnError)
 			fs.SetOutput(os.Stderr)
@@ -227,6 +336,154 @@ func run(argv []string) int {
 			fmt.Fprintf(os.Stderr, "bridge models: unknown command: %s\n", args[0])
 			return 2
 		}
+
+	case "platforms":
+		if len(args) > 0 && args[0] == "init-claude" {
+			fs := flag.NewFlagSet("platforms init-claude", flag.ContinueOnError)
+			fs.SetOutput(os.Stderr)
+			baseURL := fs.String("base-url", "", "Anthropic-compatible URL on the configured CPA endpoint")
+			confirmProtocol := fs.Bool("confirm-anthropic-compatible", false, "confirm this endpoint supports Claude's Anthropic API")
+			confirmAuth := fs.Bool("confirm-external-auth", false, "confirm Claude credentials are provisioned outside settings.json")
+			write := fs.Bool("write", false, "create an absent Claude settings.json")
+			jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+			if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+				return 2
+			}
+			report, err := bridge.InitClaudeSettings(m, *baseURL, *confirmProtocol, *confirmAuth, *write)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bridge platforms init-claude: %v\n", err)
+				return 1
+			}
+			if *jsonOut {
+				return printJSON(report)
+			}
+			fmt.Printf("%s Claude settings %s with %d visible models — %s\n", report.Action, report.Path, report.VisibleModels, report.Detail)
+			return 0
+		}
+		if len(args) == 0 || (args[0] != "scan" && args[0] != "plan" && args[0] != "sync") {
+			fmt.Fprintln(os.Stderr, "bridge platforms: expected scan, plan, sync or init-claude")
+			return 2
+		}
+		fs := flag.NewFlagSet("platforms "+args[0], flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+		if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+			return 2
+		}
+		if args[0] == "scan" {
+			report := bridge.ScanPlatforms(m)
+			if *jsonOut {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				if err := enc.Encode(report); err != nil {
+					fmt.Fprintf(os.Stderr, "bridge platforms scan: %v\n", err)
+					return 1
+				}
+			} else {
+				for _, platform := range report.Platforms {
+					fmt.Printf("%-12s %-14s %s — %s\n", platform.ID, platform.State, platform.Path, platform.Detail)
+				}
+			}
+			return 0
+		}
+		var report bridge.PlatformSyncReport
+		var err error
+		if args[0] == "plan" {
+			report, err = bridge.PlanPlatformSync(m)
+		} else {
+			report, err = bridge.SyncPlatformConfigs(m)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bridge platforms %s: %v\n", args[0], err)
+			return 1
+		}
+		if *jsonOut {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(report); err != nil {
+				fmt.Fprintf(os.Stderr, "bridge platforms %s: %v\n", args[0], err)
+				return 1
+			}
+		} else {
+			for _, item := range report.Items {
+				fmt.Printf("%-8s %-8s %s — %s\n", item.ID, item.Action, item.Path, item.Detail)
+			}
+		}
+		if args[0] == "sync" && report.Failed > 0 {
+			return 1
+		}
+		return 0
+
+	case "remote":
+		if len(args) == 0 || (args[0] != "scan" && args[0] != "install" && args[0] != "sync") {
+			fmt.Fprintln(os.Stderr, "bridge remote: expected scan, install or sync")
+			return 2
+		}
+		fs := flag.NewFlagSet("remote "+args[0], flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		target := fs.String("target", "", "SSH host alias or user@host")
+		binary := fs.String("binary", "", "prebuilt Linux/amd64 bridge-go binary for installation")
+		write := fs.Bool("write", false, "apply model visibility to the remote target")
+		jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+		if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+			return 2
+		}
+		if args[0] == "sync" {
+			report, err := bridge.SyncRemote(m, *target, *write)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bridge remote sync: %v\n", err)
+				return 1
+			}
+			if *jsonOut {
+				if code := printJSON(report); code != 0 {
+					return code
+				}
+			} else {
+				fmt.Printf("%s: %s\n", report.Target, report.Detail)
+			}
+			if *write && (!report.RemoteReady || report.Platforms.Failed > 0) {
+				return 1
+			}
+			return 0
+		}
+		if args[0] == "install" {
+			report, err := bridge.InstallRemote(*target, *binary)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bridge remote install: %v\n", err)
+				return 1
+			}
+			if *jsonOut {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				if err := enc.Encode(report); err != nil {
+					return 1
+				}
+			} else {
+				fmt.Printf("%s: %s\n", report.Target, report.Detail)
+			}
+			if !report.DoctorReady {
+				return 1
+			}
+			return 0
+		}
+		report, err := bridge.ScanRemote(*target)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bridge remote scan: %v\n", err)
+			return 1
+		}
+		if *jsonOut {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(report); err != nil {
+				return 1
+			}
+		} else {
+			fmt.Printf("%s -> %s@%s:%d: %s\n", report.Target, report.ResolvedUser, report.ResolvedHost, report.ResolvedPort, report.Detail)
+		}
+		if !report.SSHAuthenticated {
+			return 1
+		}
+		return 0
 
 	case "up":
 		fs := flag.NewFlagSet("up", flag.ContinueOnError)
@@ -288,7 +545,18 @@ func run(argv []string) int {
 	}
 }
 
+func printJSON(value any) int {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(value); err != nil {
+		fmt.Fprintf(os.Stderr, "bridge: cannot encode JSON: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: bridge [--manifest bridge.toml] <command> [options]")
-	fmt.Fprintln(os.Stderr, "commands: setup, models, render, doctor, status, adopt, plan, templates, install, up, down, logs, rollback, socks5")
+	fmt.Fprintln(os.Stderr, "commands: init, setup, models, platforms, remote, render, doctor, status, adopt, plan, templates, install, up, down, logs, rollback, socks5")
 }

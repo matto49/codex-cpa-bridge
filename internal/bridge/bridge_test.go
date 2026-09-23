@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testManifest(t *testing.T) Manifest {
@@ -379,6 +380,59 @@ func TestWrapperLoadsReferencedCredentialWithoutEmbeddingSecret(t *testing.T) {
 	if strings.Contains(rendered, "api-keys:") {
 		t.Fatalf("wrapper unexpectedly embeds a CPA secret:\n%s", rendered)
 	}
+}
+
+func TestSSHProbeUsesBridgeCommandAndIgnoresStderr(t *testing.T) {
+	m := testManifest(t)
+	m.SSH.CPA.Management = "external"
+	prepareFakeSSHProbe(t, m, `
+if [ "$last" = "__codex_cpa_bridge_probe__" ]; then
+  printf '%s\n' "$TEST_CPA_HOME"
+  printf 'app-server warning\n' >&2
+  exit 0
+fi
+exit 77
+`)
+	t.Setenv("TEST_CPA_HOME", m.Profiles.CPA.Home)
+	ok, home := runSSHProbe(m, time.Second)
+	if !ok || home != m.Profiles.CPA.Home {
+		t.Fatalf("probe = %t, %q; want CPA home %q", ok, home, m.Profiles.CPA.Home)
+	}
+}
+
+func TestSSHProbeFallsBackForOrdinaryExternalSSH(t *testing.T) {
+	m := testManifest(t)
+	m.SSH.CPA.Management = "external"
+	prepareFakeSSHProbe(t, m, `
+if [ "$last" = "__codex_cpa_bridge_probe__" ]; then
+  printf 'command not found\n' >&2
+  exit 127
+fi
+printf '%s\n' "$TEST_CPA_HOME"
+`)
+	t.Setenv("TEST_CPA_HOME", m.Profiles.CPA.Home)
+	ok, home := runSSHProbe(m, time.Second)
+	if !ok || home != m.Profiles.CPA.Home {
+		t.Fatalf("probe = %t, %q; want CPA home %q", ok, home, m.Profiles.CPA.Home)
+	}
+}
+
+func prepareFakeSSHProbe(t *testing.T, m Manifest, behavior string) {
+	t.Helper()
+	sshDir := filepath.Join(m.Runtime.StateDir, "ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "ssh_host_ed25519_key.pub"), []byte("ssh-ed25519 TESTKEY\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	ssh := filepath.Join(binDir, "ssh")
+	script := "#!/bin/sh\nfor last do :; done\n" + behavior
+	if err := os.WriteFile(ssh, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func TestSetModelVisibilityPreservesCatalogAndCreatesBackup(t *testing.T) {

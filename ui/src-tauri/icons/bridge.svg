@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="surface" x1="62" y1="36" x2="462" y2="494" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#293B35"/>
+      <stop offset="1" stop-color="#172321"/>
+    </linearGradient>
+    <linearGradient id="bridge" x1="108" y1="130" x2="402" y2="394" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8BE6B2"/>
+      <stop offset="1" stop-color="#45B99B"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="488" height="488" rx="112" fill="url(#surface)"/>
+  <rect x="13" y="13" width="486" height="486" rx="111" stroke="#B8F4CE" stroke-opacity=".16" stroke-width="2"/>
+  <path d="M357 153C328 133 295 122 256 122C182 122 122 182 122 256C122 330 182 390 256 390C295 390 328 379 357 359" stroke="url(#bridge)" stroke-width="62" stroke-linecap="round"/>
+  <path d="M364 190H405M364 256H418M364 322H405" stroke="#D8F9E1" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="418" cy="190" r="16" fill="#D8F9E1"/>
+  <circle cx="431" cy="256" r="16" fill="#D8F9E1"/>
+  <circle cx="418" cy="322" r="16" fill="#D8F9E1"/>
+</svg>

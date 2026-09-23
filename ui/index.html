@@ -8,6 +8,36 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Some macOS WebViews have not executed the module entry after the page
+      // load event. Importing the same URL is safe (modules execute once) and
+      // gives the user a visible failure if the bundle really cannot start.
+      window.addEventListener("DOMContentLoaded", () => {
+        window.setTimeout(async () => {
+          const root = document.getElementById("root");
+          if (!root || root.childElementCount > 0) return;
+          const entry = document.querySelector('script[type="module"][src]');
+          if (!entry) {
+            root.textContent = "Could not find the desktop UI entry script.";
+            return;
+          }
+          window.__CPA_BOOT_WATCHDOG__ = "importing";
+          try {
+            await import(entry.src);
+            window.__CPA_BOOT_WATCHDOG__ = "imported";
+            window.setTimeout(() => {
+              if (root.childElementCount === 0) {
+                root.textContent = "The desktop UI loaded but did not render. Restart the app or check its logs.";
+              }
+            }, 1000);
+          } catch (error) {
+            window.__CPA_BOOT_WATCHDOG__ = "failed";
+            console.error("Codex CPA Bridge failed to start", error);
+            root.textContent = "Could not start the desktop UI. Restart the app or check its logs.";
+          }
+        }, 1200);
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -132,7 +132,7 @@ func (s *Socks5Server) handleConn(c net.Conn) {
 		return
 	}
 	port := binary.BigEndian.Uint16(buf[:2])
-	targetAddr := fmt.Sprintf("%s:%d", host, port)
+	targetAddr := net.JoinHostPort(host, fmt.Sprint(port))
 
 	dialer := net.Dialer{
 		Timeout:   s.DialTimeout,

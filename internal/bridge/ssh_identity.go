@@ -21,9 +21,19 @@ func regularFile(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// sshd StrictModes rejects authorized_keys below a group/world-writable or
-// foreign-owned ancestor (for example /tmp), even if the key file is private.
+// sshd StrictModes checks authorized_keys ancestors through the account home,
+// or through the filesystem root when the key is outside that home. It does
+// not reject a private home merely because an ancestor above it is foreign-
+// owned (a common layout for mounted home volumes).
 func validateManagedSSHPath(path string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	home, err = filepath.EvalSymlinks(home)
+	if err != nil {
+		return err
+	}
 	directory := filepath.Clean(filepath.Dir(path))
 	for {
 		if _, err := os.Stat(directory); errors.Is(err, os.ErrNotExist) {
@@ -42,6 +52,10 @@ func validateManagedSSHPath(path string) error {
 	if err != nil {
 		return err
 	}
+	stopAtHome := false
+	if relative, err := filepath.Rel(home, resolved); err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		stopAtHome = true
+	}
 	for current := resolved; ; current = filepath.Dir(current) {
 		info, err := os.Stat(current)
 		if err != nil {
@@ -52,6 +66,9 @@ func validateManagedSSHPath(path string) error {
 		}
 		if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != 0 && stat.Uid != uint32(os.Getuid()) {
 			return fmt.Errorf("insecure SSH path %s: directory must be owned by this user or root", current)
+		}
+		if stopAtHome && current == home {
+			return nil
 		}
 		if parent := filepath.Dir(current); parent == current {
 			return nil

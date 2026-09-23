@@ -24,6 +24,7 @@ type RemoteInstallReport struct {
 	ManifestPath    string `json:"manifest_path"`
 	SetupAttempted  bool   `json:"setup_attempted"`
 	SetupSucceeded  bool   `json:"setup_succeeded"`
+	DoctorChecked   bool   `json:"doctor_checked"`
 	DoctorReady     bool   `json:"doctor_ready"`
 	DoctorIssues    int    `json:"doctor_issues"`
 	Detail          string `json:"detail"`
@@ -100,8 +101,8 @@ func InstallRemote(target, binary string, options RemoteInstallOptions) (RemoteI
 	if options.Setup {
 		report.SetupAttempted = true
 		setupCommand := `"$HOME/.local/bin/bridge-go" --manifest "$HOME/.config/codex-cpa-bridge/bridge.toml" setup --generate-bridge-key`
-		if _, err := remoteShell(ctx, target, setupCommand); err != nil {
-			report.Detail = "Remote CLI and manifest are installed, but setup failed. Inspect the remote setup plan and existing SSH identity."
+		if output, err := remoteShellRaw(ctx, target, setupCommand); err != nil {
+			report.Detail = classifyRemoteSetupFailure(output)
 			return report, nil
 		}
 		report.SetupSucceeded = true
@@ -111,6 +112,7 @@ func InstallRemote(target, binary string, options RemoteInstallOptions) (RemoteI
 		report.Detail = "CLI and manifest installed, but remote doctor did not return a valid report"
 		return report, nil
 	}
+	report.DoctorChecked = true
 	report.DoctorReady = doctor.Result.BridgeReady
 	report.DoctorIssues = doctor.Result.Issues
 	if report.DoctorReady {
@@ -119,6 +121,19 @@ func InstallRemote(target, binary string, options RemoteInstallOptions) (RemoteI
 		report.Detail = "Remote CLI and manifest are installed; inspect remote doctor issues"
 	}
 	return report, nil
+}
+
+func classifyRemoteSetupFailure(output string) string {
+	switch {
+	case strings.Contains(output, "insecure SSH path"):
+		return "Remote setup failed SSH StrictModes path preflight; keep bridge state under a private home"
+	case strings.Contains(output, "setup blocked by"):
+		return "Remote setup blocked by unmanaged files; inspect the remote setup plan"
+	case strings.Contains(output, "identity already exists"):
+		return "Remote setup found an existing or partial bridge SSH identity; inspect it before retrying"
+	default:
+		return "Remote CLI and manifest are installed, but setup failed. Inspect the remote setup plan and existing SSH identity."
+	}
 }
 
 func hashFileSHA256(path string) (string, error) {
@@ -154,10 +169,18 @@ func validateLinuxAMD64Binary(path string) error {
 }
 
 func remoteShell(ctx context.Context, target, script string) (string, error) {
+	output, err := remoteShellRaw(ctx, target, script)
+	if err != nil {
+		return "", err
+	}
+	return output, nil
+}
+
+func remoteShellRaw(ctx context.Context, target, script string) (string, error) {
 	command := "sh -c " + shellQuote(script)
 	output, err := exec.CommandContext(ctx, "ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=5", target, command).CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("remote command failed: %w", err)
+		return strings.TrimSpace(string(output)), fmt.Errorf("remote command failed: %w", err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }

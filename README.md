@@ -127,7 +127,9 @@ make remote-binary
 
 `remote sync` without `--write` is a preview. Apply only after reviewing the report. `remote install --setup` is an explicit write operation: it may update bridge-owned files, start the remote loopback sshd, and generate `~/.codex-cpa-bridge/ssh/client_ed25519` only when no bridge key or explicit identity is configured. It refuses unmanaged files unless the operator repairs them separately; an existing or partial key pair is never replaced. The installer does not copy local secrets, and remote CPA credentials/catalog may still require host-specific setup.
 
-Keep `runtime.state_dir` beneath a private home directory. OpenSSH `StrictModes` rejects an `authorized_keys` file under a public writable ancestor such as `/tmp`, even when the key file itself is mode `0600`; setup now detects that before writing.
+The install report distinguishes `doctor_checked` from `doctor_ready`: if setup fails before doctor runs, `doctor_issues: 0` does not imply a healthy remote bridge. Known setup failures are classified without echoing remote command output or credentials.
+
+Keep `runtime.state_dir` beneath a private home directory. OpenSSH `StrictModes` checks the `authorized_keys` path through the account home (or through the filesystem root for paths outside that home). A public writable directory such as `/tmp` on that checked path is rejected even when the key file is mode `0600`; setup detects this before writing. Shared mount ancestors above an otherwise private home are not rejected.
 
 `bridge_ready=true` means the isolated CPA profile, CPA black-box `/models` probe, and loopback SSH probe are ready.
 `policy_ok=false` means the host's configured policy was violated. On Mac/Desktop overlays this usually means the

@@ -234,3 +234,26 @@ func TestSetupRejectsInsecureSSHAncestorBeforeWriting(t *testing.T) {
 		t.Fatal("setup wrote files despite an insecure SSH path")
 	}
 }
+
+func TestManagedSSHPathStopsCheckingAtPrivateHome(t *testing.T) {
+	outer := filepath.Join(t.TempDir(), "shared-mount")
+	if err := os.Mkdir(outer, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(outer, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(outer, "home", "operator")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	inside := filepath.Join(home, ".codex-cpa-bridge", "ssh", "authorized_keys")
+	if err := validateManagedSSHPath(inside); err != nil {
+		t.Fatalf("private home beneath a shared mount was rejected: %v", err)
+	}
+	outside := filepath.Join(outer, "other", "ssh", "authorized_keys")
+	if err := validateManagedSSHPath(outside); err == nil || !strings.Contains(err.Error(), "insecure SSH path") {
+		t.Fatalf("insecure path outside home was accepted: %v", err)
+	}
+}

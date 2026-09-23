@@ -28,6 +28,8 @@ model routing, and gateway internals belong to CPA and are outside this tool's s
 Prerequisites: Go 1.27+, a running CPA-compatible service, an existing CPA-backed Codex profile with `model_catalog_json`, and `sqlite3` for local xbot model sync. The desktop UI also requires Node.js and a Rust toolchain.
 
 ```sh
+git clone https://github.com/matto49/codex-cpa-bridge.git
+cd codex-cpa-bridge
 make build
 ./bin/bridge-go --manifest ~/.config/codex-cpa-bridge/bridge.toml init --json
 ./bin/bridge-go --manifest ~/.config/codex-cpa-bridge/bridge.toml init --write
@@ -165,6 +167,8 @@ open "src-tauri/target/release/bundle/macos/Codex CPA Bridge.app"
 The `.app` bundles the Go CLI as a sidecar. On first launch, enter a manifest path in Settings, click “Load manifest”, then use “Initialize from this Mac” if a CPA-backed Codex profile already exists. If the catalog or Claude settings are missing, Settings offers separate preview/create actions with the safety checks above. In Models, toggles write the source catalog and immediately run local sync; if a remote SSH target is configured in Settings, they also run remote sync. Each target remains separately reported, and active Codex/Claude/xbot sessions may need reconnect or refresh.
 
 The icon source is `ui/src-tauri/icons/bridge.svg`; regenerate the PNG after changing it with `rsvg-convert -w 512 -h 512 -o ui/src-tauri/icons/icon.png ui/src-tauri/icons/bridge.svg`. The app detects a front-end boot failure and shows an error instead of an empty window. An unsigned local build is suitable for development only; signing, notarization, and clean-machine installation are not yet verified.
+
+Successful GitHub Actions runs also retain a Linux/amd64 CLI tarball and a zipped macOS `.app` (artifact name includes the runner architecture) for 14 days under the run's **Artifacts** section. Each includes a SHA-256 checksum file. The macOS archive is an unsigned development build, not a notarized release; inspect the workflow and verify the source revision before using it. The Linux CLI still needs a host-specific manifest, CPA credential source, and model catalog.
 
 ## Verification
 

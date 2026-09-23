@@ -24,8 +24,8 @@ button:disabled { cursor: default; opacity: .48; }
 .sidebar-foot code { margin-left: auto; }
 
 .content { grid-column: 2; min-width: 0; }
-.view { width: min(1040px, calc(100vw - 208px)); margin: 0 auto; padding: 42px 46px 72px; }
-.view.narrow { width: min(820px, calc(100vw - 208px)); margin-left: 0; }
+.view { width: 100%; max-width: 1040px; margin: 0 auto; padding: 42px 46px 72px; }
+.view.narrow { max-width: 820px; margin-left: 0; }
 .page-head { min-height: 66px; display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
 h1, h2, p { margin: 0; }
 h1 { font-size: 25px; line-height: 1.2; font-weight: 700; }
@@ -139,6 +139,6 @@ dd { min-width: 0; margin: 0; overflow: hidden; color: #424946; font-family: ui-
   .app-shell { grid-template-columns: 176px minmax(0, 1fr); }
   .sidebar { width: 176px; }
   .content { grid-column: 2; }
-  .view, .view.narrow { width: calc(100vw - 176px); padding: 34px 28px 60px; }
+  .view, .view.narrow { padding: 34px 28px 60px; }
   .model-table-head, .model-row { grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.2fr) 58px 54px; gap: 10px; }
 }

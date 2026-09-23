@@ -115,6 +115,7 @@ type CPABlackbox struct {
 	ModelSample    []string         `json:"model_sample"`
 	ModelsDetail   string           `json:"models_detail,omitempty"`
 	ResponsesProbe *HTTPProbeReport `json:"responses_probe"`
+	AnthropicProbe *HTTPProbeReport `json:"anthropic_probe,omitempty"`
 }
 
 type HTTPProbeReport struct {
@@ -1145,6 +1146,12 @@ func PrintDoctorReport(w io.Writer, r DoctorReport) {
 		fmt.Fprintf(w, "  /responses: %s (%s)\n", okFailed(r.CPABlackbox.ResponsesProbe.OK), r.CPABlackbox.ResponsesProbe.Status)
 		if r.CPABlackbox.ResponsesProbe.Detail != "" {
 			fmt.Fprintf(w, "  detail: %s\n", r.CPABlackbox.ResponsesProbe.Detail)
+		}
+	}
+	if r.CPABlackbox.AnthropicProbe != nil {
+		fmt.Fprintf(w, "  /messages: %s (%s)\n", okFailed(r.CPABlackbox.AnthropicProbe.OK), r.CPABlackbox.AnthropicProbe.Status)
+		if r.CPABlackbox.AnthropicProbe.Detail != "" {
+			fmt.Fprintf(w, "  detail: %s\n", r.CPABlackbox.AnthropicProbe.Detail)
 		}
 	}
 	fmt.Fprintln(w, "\nssh endpoint")

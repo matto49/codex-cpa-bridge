@@ -96,11 +96,21 @@ func run(argv []string) int {
 		fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
 		probeResponses := fs.Bool("probe-responses", false, "send a minimal /v1/responses request to CPA")
+		probeAnthropic := fs.String("probe-anthropic", "", "send a minimal /v1/messages request using the specified model")
 		jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 		if err := fs.Parse(args); err != nil {
 			return 2
 		}
 		report, failures := bridge.CollectDoctorReport(m, *probeResponses)
+		if *probeAnthropic != "" {
+			probe := bridge.ProbeAnthropicMessages(m, *probeAnthropic)
+			report.CPABlackbox.AnthropicProbe = &probe
+			if !probe.OK {
+				failures++
+				report.Result.Issues++
+				report.Result.OK = false
+			}
+		}
 		if *jsonOut {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")

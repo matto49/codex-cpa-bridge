@@ -172,7 +172,7 @@ go vet ./...
 cd ui && npm ci && npm run tauri build
 ```
 
-GitHub Actions runs these checks on every push and pull request. Local `doctor --json` checks profile isolation, authenticated CPA `/models`, and SSH readiness; add `--probe-responses` only when you want to send a minimal live inference request. The project is licensed under [MIT](LICENSE).
+GitHub Actions runs these checks on every push and pull request. Local `doctor --json` checks profile isolation, authenticated CPA `/models`, and SSH readiness. Add `--probe-responses` for a minimal Codex inference request, or `--probe-anthropic claude-sonnet-4-6` for an explicitly requested Anthropic `/v1/messages` inference check; both can consume upstream quota. The Anthropic probe reports only protocol status, never the credential or model output. A successful probe verifies CPA's Messages endpoint, not Claude Code's own authentication or picker behavior. The project is licensed under [MIT](LICENSE).
 
 
 ## Egress SOCKS5 Proxy (for Gemini & CloudCode)

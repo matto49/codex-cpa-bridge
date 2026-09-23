@@ -149,10 +149,10 @@ func planXbotDB(m Manifest, catalog []ModelSummary) (PlatformSyncItem, *xbotDBCh
 	}
 	item.RestartNeeded = true
 	if len(actions) == 0 && len(defaultEdits) == 0 {
-		item.Action, item.Detail, item.RestartNeeded = "noop", "xbot subscription model flags already match the catalog", false
+		item.Action, item.Detail, item.RestartNeeded = "noop", "xbot subscription model flags already match the catalog; disabled models remain listed but unselectable", false
 		return item, nil
 	}
-	item.Action, item.Detail = "update", fmt.Sprintf("Update %d xbot model flags and %d preferred selections across %d CPA subscription(s); back up first, then refresh or reconnect xbot", len(actions), len(defaultEdits), len(snapshot.subscriptions))
+	item.Action, item.Detail = "update", fmt.Sprintf("Update %d xbot model flags and %d preferred selections across %d CPA subscription(s); disabled models remain listed but unselectable; back up first, then refresh or reconnect xbot", len(actions), len(defaultEdits), len(snapshot.subscriptions))
 	return item, &xbotDBChange{path: m.Platforms.XbotDatabase, actions: actions, defaultEdits: defaultEdits}
 }
 

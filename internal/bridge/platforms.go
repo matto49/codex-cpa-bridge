@@ -155,7 +155,7 @@ func scanXbot(m Manifest) PlatformReport {
 	}
 	r.CPAEndpoint = true
 	r.RestartNeeded = true
-	r.State, r.Detail = "ready", fmt.Sprintf("%d CPA subscription(s), %d model entries in xbot database", len(snapshot.subscriptions), len(snapshot.models))
+	r.State, r.Detail = "ready", fmt.Sprintf("%d CPA subscription(s), %d model entries in xbot database; disabled models remain greyed out in xbot's picker", len(snapshot.subscriptions), len(snapshot.models))
 	if !configCPA {
 		r.Detail += "; fallback config is separate and will be preserved"
 	}

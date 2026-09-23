@@ -197,7 +197,7 @@ func run(argv []string) int {
 		fs.SetOutput(os.Stderr)
 		force := fs.Bool("force", false, "back up and replace unmanaged CPA or bridge files")
 		authorizedKeyFile := fs.String("authorized-key-file", "", "public key to authorize for the loopback sshd")
-		generateBridgeKey := fs.Bool("generate-bridge-key", false, "create a dedicated bridge SSH client key only when no usable key exists")
+		generateBridgeKey := fs.Bool("generate-bridge-key", false, "create a dedicated bridge SSH client key when no bridge key or configured identity exists")
 		noStart := fs.Bool("no-start", false, "configure files without starting the loopback sshd")
 		if err := fs.Parse(args); err != nil {
 			return 2

@@ -556,6 +556,11 @@ func Setup(w io.Writer, m Manifest, options SetupOptions) error {
 	if options.GenerateBridgeKey && m.SSH.CPA.Management == "external" {
 		return errors.New("--generate-bridge-key requires a managed SSH endpoint")
 	}
+	if options.Start && m.SSH.CPA.Management != "external" {
+		if err := validateManagedSSHPath(filepath.Join(m.Runtime.StateDir, "ssh", "authorized_keys")); err != nil {
+			return err
+		}
+	}
 	if options.GenerateBridgeKey && m.SSH.CPA.Management != "external" {
 		preflight, err := CollectPlan(m, options.Force, options.AuthorizedKeyFile)
 		if err != nil {
@@ -569,12 +574,13 @@ func Setup(w io.Writer, m Manifest, options SetupOptions) error {
 	publicKey := ""
 	if m.SSH.CPA.Management != "external" {
 		var err error
-		publicKey, err = ResolveAuthorizedKeyFile(m, options.AuthorizedKeyFile)
-		if err != nil && options.GenerateBridgeKey && m.SSH.CPA.IdentityFile == "" {
+		if options.GenerateBridgeKey && m.SSH.CPA.IdentityFile == "" {
 			publicKey, err = generateBridgeClientIdentity(m)
 			if err == nil {
 				m.SSH.CPA.IdentityFile = strings.TrimSuffix(publicKey, ".pub")
 			}
+		} else {
+			publicKey, err = ResolveAuthorizedKeyFile(m, options.AuthorizedKeyFile)
 		}
 		if err != nil {
 			return err
@@ -858,6 +864,9 @@ func Up(w io.Writer, m Manifest, foreground bool) error {
 		}
 		fmt.Fprintf(w, "verified external SSH endpoint: %s@%s:%d\n", m.SSH.CPA.User, m.SSH.CPA.Host, m.SSH.CPA.Port)
 		return nil
+	}
+	if err := validateManagedSSHPath(filepath.Join(m.Runtime.StateDir, "ssh", "authorized_keys")); err != nil {
+		return err
 	}
 	start := filepath.Join(m.Runtime.StateDir, "bin", "start-sshd.sh")
 	if _, err := os.Stat(start); err != nil {

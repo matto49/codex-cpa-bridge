@@ -37,7 +37,7 @@ type RemoteInstallOptions struct {
 // backs up an existing binary, initializes only a missing manifest, then runs
 // the remote doctor. With Setup enabled, it also configures the remote
 // bridge-owned loopback SSH service and generates a dedicated client key only
-// if no usable key exists. It never copies local CPA credentials to the host.
+// if no bridge key or explicit identity exists. It never copies local CPA credentials.
 func InstallRemote(target, binary string, options RemoteInstallOptions) (RemoteInstallReport, error) {
 	if !validSSHTarget(target) {
 		return RemoteInstallReport{}, errors.New("invalid SSH target")

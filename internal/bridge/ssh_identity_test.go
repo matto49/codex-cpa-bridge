@@ -178,3 +178,59 @@ func TestOrphanDefaultPublicKeyDoesNotPreventBootstrap(t *testing.T) {
 		t.Fatalf("orphan public key changed: %q, %v", content, err)
 	}
 }
+
+func TestBootstrapPrefersDedicatedKeyOverDefaultIdentity(t *testing.T) {
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		t.Skip("ssh-keygen is not installed")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	defaultPrivate := filepath.Join(sshDir, "id_ed25519")
+	defaultPublic := defaultPrivate + ".pub"
+	for path, content := range map[string]string{
+		defaultPrivate: "private fixture",
+		defaultPublic:  "ssh-ed25519 AAAA default@test\n",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := testManifest(t)
+	if err := Setup(&bytes.Buffer{}, m, SetupOptions{GenerateBridgeKey: true, Start: false}); err != nil {
+		t.Fatal(err)
+	}
+	if !regularFile(bridgeClientIdentityPath(m)) {
+		t.Fatal("dedicated key was not generated")
+	}
+	key, err := os.ReadFile(defaultPublic)
+	if err != nil || string(key) != "ssh-ed25519 AAAA default@test\n" {
+		t.Fatalf("default key changed: %q, %v", key, err)
+	}
+	installed, err := os.ReadFile(filepath.Join(m.Runtime.StateDir, "ssh", "authorized_keys"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(installed, bytes.TrimSpace(key)) {
+		t.Fatal("setup authorized the default key instead of the dedicated bridge key")
+	}
+}
+
+func TestSetupRejectsInsecureSSHAncestorBeforeWriting(t *testing.T) {
+	info, err := os.Stat("/tmp")
+	if err != nil || info.Mode().Perm()&0o022 == 0 {
+		t.Skip("/tmp is not available as a writable public directory")
+	}
+	m := testManifest(t)
+	m.Runtime.StateDir = filepath.Join("/tmp", "codex-cpa-strictmodes-test-never-created")
+	err = Setup(&bytes.Buffer{}, m, SetupOptions{GenerateBridgeKey: true, Start: true})
+	if err == nil || !strings.Contains(err.Error(), "insecure SSH path") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fileExists(m.Runtime.StateDir) {
+		t.Fatal("setup wrote files despite an insecure SSH path")
+	}
+}

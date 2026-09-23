@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -18,6 +19,44 @@ func bridgeClientIdentityPath(m Manifest) string {
 func regularFile(path string) bool {
 	info, err := os.Lstat(path)
 	return err == nil && info.Mode().IsRegular()
+}
+
+// sshd StrictModes rejects authorized_keys below a group/world-writable or
+// foreign-owned ancestor (for example /tmp), even if the key file is private.
+func validateManagedSSHPath(path string) error {
+	directory := filepath.Clean(filepath.Dir(path))
+	for {
+		if _, err := os.Stat(directory); errors.Is(err, os.ErrNotExist) {
+			parent := filepath.Dir(directory)
+			if parent == directory {
+				return err
+			}
+			directory = parent
+			continue
+		} else if err != nil {
+			return err
+		}
+		break
+	}
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		return err
+	}
+	for current := resolved; ; current = filepath.Dir(current) {
+		info, err := os.Stat(current)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() || info.Mode().Perm()&0o022 != 0 {
+			return fmt.Errorf("insecure SSH path %s: sshd StrictModes requires private ancestor directories; choose a directory under your home", current)
+		}
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != 0 && stat.Uid != uint32(os.Getuid()) {
+			return fmt.Errorf("insecure SSH path %s: directory must be owned by this user or root", current)
+		}
+		if parent := filepath.Dir(current); parent == current {
+			return nil
+		}
+	}
 }
 
 // generateBridgeClientIdentity creates a dedicated client key only when neither

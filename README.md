@@ -89,7 +89,7 @@ app_server_args = ["app-server"]
 
 ## Commands
 
-- `bridge setup`: configure the isolated Codex profile and loopback sshd, start it, then verify an authenticated SSH probe. Add `--generate-bridge-key` to create a dedicated client key only when no usable key exists; it does not replace existing keys or work on externally managed SSH endpoints.
+- `bridge setup`: configure the isolated Codex profile and loopback sshd, start it, then verify an authenticated SSH probe. Add `--generate-bridge-key` to create a dedicated client key when no bridge key or explicit `identity_file` exists; it does not replace existing keys or work on externally managed SSH endpoints.
 - `bridge models list --json`: list model display names, visibility, API support, and priority for the UI.
 - `bridge models bootstrap [--write] --json`: preview or create a missing catalog from CPA's complete Codex metadata; never overwrite an existing catalog.
 - `bridge models set --slug MODEL --visibility list|hide`: change whether one catalog model is shown, with a backup.
@@ -100,7 +100,7 @@ app_server_args = ["app-server"]
 - `bridge platforms sync --json`: back up and apply changes to CPA-backed Claude settings and xbot subscription rows. Codex reads the source catalog directly. The JSON report names each platform's outcome and backup path; the command exits nonzero for blocked/failed platforms.
 - `bridge remote scan --target SSH_ALIAS --json`: resolve the actual SSH host and verify authenticated SSH, remote bridge installation, Codex home, and authenticated CPA health.
 - `bridge remote sync --target SSH_ALIAS --json`: preview visibility differences against a ready remote bridge. Add `--write` to refresh its CPA catalog, apply matching visibility, then sync remote platforms. Models absent from remote CPA are reported as unavailable, never reported as synchronized.
-- `bridge remote install --target SSH_ALIAS --binary bin/bridge-go-linux-amd64 --json`: upload a prebuilt Linux/amd64 CLI after backing up an existing binary, initialize a missing remote manifest, and run remote doctor. Add `--setup` to configure the remote bridge-owned loopback SSH endpoint and create a dedicated client key when needed. Build the binary with `make remote-binary`. The installer never copies local credentials; a new host still needs its own CPA credential source and model catalog.
+- `bridge remote install --target SSH_ALIAS --binary bin/bridge-go-linux-amd64 --json`: upload a prebuilt Linux/amd64 CLI after backing up an existing binary, initialize a missing remote manifest, and run remote doctor. Add `--setup` to configure the remote bridge-owned loopback SSH endpoint and create a dedicated client key when no bridge key or explicit identity is configured. Build the binary with `make remote-binary`. The installer never copies local credentials; a new host still needs its own CPA credential source and model catalog.
 - `bridge init --write`: auto-detect an existing CPA Codex profile and create a new private manifest at `--manifest`.
 - `bridge doctor`: report profile isolation, generated config drift, CPA black-box health, and SSH readiness.
 - `bridge status`: compact status output for humans and scripts.
@@ -125,7 +125,9 @@ make remote-binary
 ./bin/bridge-go --manifest ~/.config/codex-cpa-bridge/bridge.toml remote sync --target devbox --json
 ```
 
-`remote sync` without `--write` is a preview. Apply only after reviewing the report. `remote install --setup` is an explicit write operation: it may update bridge-owned files, start the remote loopback sshd, and generate `~/.codex-cpa-bridge/ssh/client_ed25519` only when no usable identity is found. It refuses unmanaged files unless the operator repairs them separately; an existing or partial key pair is never replaced. The installer does not copy local secrets, and remote CPA credentials/catalog may still require host-specific setup.
+`remote sync` without `--write` is a preview. Apply only after reviewing the report. `remote install --setup` is an explicit write operation: it may update bridge-owned files, start the remote loopback sshd, and generate `~/.codex-cpa-bridge/ssh/client_ed25519` only when no bridge key or explicit identity is configured. It refuses unmanaged files unless the operator repairs them separately; an existing or partial key pair is never replaced. The installer does not copy local secrets, and remote CPA credentials/catalog may still require host-specific setup.
+
+Keep `runtime.state_dir` beneath a private home directory. OpenSSH `StrictModes` rejects an `authorized_keys` file under a public writable ancestor such as `/tmp`, even when the key file itself is mode `0600`; setup now detects that before writing.
 
 `bridge_ready=true` means the isolated CPA profile, CPA black-box `/models` probe, and loopback SSH probe are ready.
 `policy_ok=false` means the host's configured policy was violated. On Mac/Desktop overlays this usually means the

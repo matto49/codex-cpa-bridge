@@ -251,6 +251,12 @@ func (m *Manifest) normalize() {
 		m.Runtime.StateDir = "~/.codex-cpa-bridge"
 	}
 	m.Runtime.StateDir = expandPath(m.Runtime.StateDir)
+	if m.SSH.CPA.IdentityFile == "" && m.SSH.CPA.Management != "external" {
+		candidate := bridgeClientIdentityPath(*m)
+		if regularFile(candidate) && regularFile(candidate+".pub") {
+			m.SSH.CPA.IdentityFile = candidate
+		}
+	}
 	if m.Platforms.ClaudeSettingsJSON == "" {
 		m.Platforms.ClaudeSettingsJSON = "~/.claude/settings.json"
 	}
@@ -534,14 +540,37 @@ func InstallTemplates(w io.Writer, m Manifest, write bool, force bool, authorize
 type SetupOptions struct {
 	Force             bool
 	AuthorizedKeyFile string
+	GenerateBridgeKey bool
 	Start             bool
 }
 
 func Setup(w io.Writer, m Manifest, options SetupOptions) error {
+	if options.GenerateBridgeKey && options.AuthorizedKeyFile != "" {
+		return errors.New("--generate-bridge-key cannot be combined with --authorized-key-file")
+	}
+	if options.GenerateBridgeKey && m.SSH.CPA.Management == "external" {
+		return errors.New("--generate-bridge-key requires a managed SSH endpoint")
+	}
+	if options.GenerateBridgeKey && m.SSH.CPA.Management != "external" {
+		preflight, err := CollectPlan(m, options.Force, options.AuthorizedKeyFile)
+		if err != nil {
+			return err
+		}
+		if preflight.Summary.Blocked > 0 {
+			PrintPlan(w, preflight)
+			return fmt.Errorf("setup blocked by %d unmanaged file(s); review the plan or rerun with --force", preflight.Summary.Blocked)
+		}
+	}
 	publicKey := ""
 	if m.SSH.CPA.Management != "external" {
 		var err error
 		publicKey, err = ResolveAuthorizedKeyFile(m, options.AuthorizedKeyFile)
+		if err != nil && options.GenerateBridgeKey && m.SSH.CPA.IdentityFile == "" {
+			publicKey, err = generateBridgeClientIdentity(m)
+			if err == nil {
+				m.SSH.CPA.IdentityFile = strings.TrimSuffix(publicKey, ".pub")
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -612,9 +641,14 @@ func ResolveAuthorizedKeyFile(m Manifest, explicit string) (string, error) {
 	var candidates []string
 	if explicit != "" {
 		candidates = append(candidates, expandPath(explicit))
+	} else if m.SSH.CPA.IdentityFile != "" {
+		if !regularFile(m.SSH.CPA.IdentityFile) {
+			return "", fmt.Errorf("configured SSH identity is not a regular file: %s", m.SSH.CPA.IdentityFile)
+		}
+		candidates = append(candidates, m.SSH.CPA.IdentityFile+".pub")
 	} else {
-		if m.SSH.CPA.IdentityFile != "" {
-			candidates = append(candidates, m.SSH.CPA.IdentityFile+".pub")
+		if dedicated := bridgeClientIdentityPath(m); regularFile(dedicated) && regularFile(dedicated+".pub") {
+			candidates = append(candidates, dedicated+".pub")
 		}
 		home, _ := os.UserHomeDir()
 		for _, name := range []string{"id_ed25519.pub", "id_ed25519_byted.pub", "id_rsa.pub"} {
@@ -622,6 +656,9 @@ func ResolveAuthorizedKeyFile(m Manifest, explicit string) (string, error) {
 		}
 	}
 	for _, path := range candidates {
+		if explicit == "" && !regularFile(strings.TrimSuffix(path, ".pub")) {
+			continue
+		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			if explicit != "" {

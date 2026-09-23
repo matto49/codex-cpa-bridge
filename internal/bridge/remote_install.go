@@ -22,15 +22,23 @@ type RemoteInstallReport struct {
 	BinaryBackup    string `json:"binary_backup,omitempty"`
 	ManifestCreated bool   `json:"manifest_created"`
 	ManifestPath    string `json:"manifest_path"`
+	SetupAttempted  bool   `json:"setup_attempted"`
+	SetupSucceeded  bool   `json:"setup_succeeded"`
 	DoctorReady     bool   `json:"doctor_ready"`
 	DoctorIssues    int    `json:"doctor_issues"`
 	Detail          string `json:"detail"`
 }
 
+type RemoteInstallOptions struct {
+	Setup bool
+}
+
 // InstallRemote uploads a prebuilt Linux/amd64 CLI using authenticated SSH,
 // backs up an existing binary, initializes only a missing manifest, then runs
-// the remote doctor. It never copies local CPA credentials to the remote host.
-func InstallRemote(target, binary string) (RemoteInstallReport, error) {
+// the remote doctor. With Setup enabled, it also configures the remote
+// bridge-owned loopback SSH service and generates a dedicated client key only
+// if no usable key exists. It never copies local CPA credentials to the host.
+func InstallRemote(target, binary string, options RemoteInstallOptions) (RemoteInstallReport, error) {
 	if !validSSHTarget(target) {
 		return RemoteInstallReport{}, errors.New("invalid SSH target")
 	}
@@ -88,6 +96,15 @@ func InstallRemote(target, binary string) (RemoteInstallReport, error) {
 			return report, nil
 		}
 		report.ManifestCreated = true
+	}
+	if options.Setup {
+		report.SetupAttempted = true
+		setupCommand := `"$HOME/.local/bin/bridge-go" --manifest "$HOME/.config/codex-cpa-bridge/bridge.toml" setup --generate-bridge-key`
+		if _, err := remoteShell(ctx, target, setupCommand); err != nil {
+			report.Detail = "Remote CLI and manifest are installed, but setup failed. Inspect the remote setup plan and existing SSH identity."
+			return report, nil
+		}
+		report.SetupSucceeded = true
 	}
 	doctor, err := remoteDoctor(ctx, target)
 	if err != nil {

@@ -180,6 +180,8 @@ cd ui && npm ci && npm run tauri build
 
 GitHub Actions runs these checks on every push and pull request. Local `doctor --json` checks profile isolation, authenticated CPA `/models`, and SSH readiness. Add `--probe-responses` for a minimal Codex inference request, or `--probe-anthropic claude-sonnet-4-6` for an explicitly requested Anthropic `/v1/messages` inference check; both can consume upstream quota. The Anthropic probe reports only protocol status, never the credential or model output. A successful probe verifies CPA's Messages endpoint, not Claude Code's own authentication or picker behavior. The project is licensed under [MIT](LICENSE).
 
+To verify Codex picker visibility without changing your active profile, run `node scripts/verify-codex-visibility.mjs /path/to/model-catalog.json MODEL_SLUG`. It copies the catalog into a temporary `CODEX_HOME`, starts fresh Codex app-server instances, and checks that the model appears when enabled, disappears from the default `model/list` response when hidden, and is marked `hidden=true` when `includeHidden` is requested. See the [official app-server model catalog contract](https://developers.openai.com/codex/app-server/). This verifies a fresh Codex runtime; an already-running Codex session may still need reconnecting to load catalog changes.
+
 
 ## Egress SOCKS5 Proxy (for Gemini & CloudCode)
 

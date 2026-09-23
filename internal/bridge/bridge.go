@@ -202,6 +202,7 @@ func LoadManifest(path string) (Manifest, error) {
 	path = expandPath(path)
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) && originalPath == "bridge.toml" {
+			m.useBridgeIdentity()
 			return m, nil
 		}
 		return Manifest{}, fmt.Errorf("cannot read manifest %s: %w", path, err)
@@ -210,6 +211,7 @@ func LoadManifest(path string) (Manifest, error) {
 		return Manifest{}, err
 	}
 	m.normalize()
+	m.useBridgeIdentity()
 	if err := m.validate(); err != nil {
 		return Manifest{}, err
 	}
@@ -251,12 +253,6 @@ func (m *Manifest) normalize() {
 		m.Runtime.StateDir = "~/.codex-cpa-bridge"
 	}
 	m.Runtime.StateDir = expandPath(m.Runtime.StateDir)
-	if m.SSH.CPA.IdentityFile == "" && m.SSH.CPA.Management != "external" {
-		candidate := bridgeClientIdentityPath(*m)
-		if regularFile(candidate) && regularFile(candidate+".pub") {
-			m.SSH.CPA.IdentityFile = candidate
-		}
-	}
 	if m.Platforms.ClaudeSettingsJSON == "" {
 		m.Platforms.ClaudeSettingsJSON = "~/.claude/settings.json"
 	}
@@ -274,6 +270,15 @@ func (m *Manifest) normalize() {
 	}
 	if len(m.Runtime.AppServerArgs) == 0 {
 		m.Runtime.AppServerArgs = []string{"app-server"}
+	}
+}
+
+func (m *Manifest) useBridgeIdentity() {
+	if m.SSH.CPA.IdentityFile == "" && m.SSH.CPA.Management != "external" {
+		candidate := bridgeClientIdentityPath(*m)
+		if regularFile(candidate) && regularFile(candidate+".pub") {
+			m.SSH.CPA.IdentityFile = candidate
+		}
 	}
 }
 

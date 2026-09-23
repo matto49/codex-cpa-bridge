@@ -42,9 +42,52 @@ func TestSetupCanBootstrapDedicatedSSHIdentity(t *testing.T) {
 	if !bytes.Contains(installed, bytes.TrimSpace(key)) {
 		t.Fatal("generated public key was not authorized")
 	}
-	m.normalize()
+	m.useBridgeIdentity()
 	if m.SSH.CPA.IdentityFile != private {
 		t.Fatalf("normalized identity = %q, want %q", m.SSH.CPA.IdentityFile, private)
+	}
+}
+
+func TestLoadManifestUsesIdentityFromFinalStateDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	defaultKey := filepath.Join(home, ".codex-cpa-bridge", "ssh", "client_ed25519")
+	if err := os.MkdirAll(filepath.Dir(defaultKey), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{defaultKey, defaultKey + ".pub"} {
+		if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	customState := filepath.Join(t.TempDir(), "custom-state")
+	manifest := filepath.Join(t.TempDir(), "bridge.toml")
+	content := "[runtime]\nstate_dir = \"" + customState + "\"\n"
+	if err := os.WriteFile(manifest, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.SSH.CPA.IdentityFile != "" {
+		t.Fatalf("custom state inherited default identity %q", m.SSH.CPA.IdentityFile)
+	}
+	customKey := filepath.Join(customState, "ssh", "client_ed25519")
+	if err := os.MkdirAll(filepath.Dir(customKey), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{customKey, customKey + ".pub"} {
+		if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, err = LoadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.SSH.CPA.IdentityFile != customKey {
+		t.Fatalf("identity = %q, want %q", m.SSH.CPA.IdentityFile, customKey)
 	}
 }
 

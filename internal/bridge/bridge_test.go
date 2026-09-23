@@ -22,6 +22,15 @@ func testManifest(t *testing.T) Manifest {
 	return m
 }
 
+func testAuthorizedKeyFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "id_ed25519.pub")
+	if err := os.WriteFile(path, []byte("ssh-ed25519 AAAA test@localhost\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestRenderConfigUsesCPAHomeAuthReferenceWithoutSecret(t *testing.T) {
 	m := testManifest(t)
 	m.Profiles.CPA.EnvKey = "CPA_API_KEY"
@@ -91,7 +100,7 @@ func TestInstallDryRunWritesNothing(t *testing.T) {
 func TestInstallWriteCreatesOwnedStateFiles(t *testing.T) {
 	m := testManifest(t)
 	var out bytes.Buffer
-	rc, err := InstallTemplates(&out, m, true, false, "")
+	rc, err := InstallTemplates(&out, m, true, false, testAuthorizedKeyFile(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +140,7 @@ func TestInstallBlocksUnmanagedFilesWithoutForce(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	rc, err := InstallTemplates(&out, m, true, false, "")
+	rc, err := InstallTemplates(&out, m, true, false, testAuthorizedKeyFile(t))
 	if err != nil {
 		t.Fatal(err)
 	}

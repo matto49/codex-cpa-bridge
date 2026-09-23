@@ -483,6 +483,16 @@ func TestSetModelVisibilityPreservesCatalogAndCreatesBackup(t *testing.T) {
 
 func TestUpRejectsPortOwnedByAnotherService(t *testing.T) {
 	m := testManifest(t)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateRoot, err := os.MkdirTemp(home, ".codex-cpa-port-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(privateRoot) })
+	m.Runtime.StateDir = filepath.Join(privateRoot, "state")
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

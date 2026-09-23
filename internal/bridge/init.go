@@ -234,13 +234,15 @@ func discoverLocalSSH(m *Manifest) {
 	}
 	m.SSH.CPA.Host = host
 	m.SSH.CPA.Port = port
-	identity := expandPath("~/.ssh/id_ed25519")
-	if info, err := os.Stat(identity); err == nil && info.Mode().IsRegular() {
-		m.SSH.CPA.IdentityFile = identity
-	} else {
-		identity = filepath.Join(m.Runtime.StateDir, "ssh", "bridge_client_ed25519")
-		if info, err := os.Stat(identity); err == nil && info.Mode().IsRegular() {
+	for _, identity := range []string{
+		bridgeClientIdentityPath(*m),
+		filepath.Join(m.Runtime.StateDir, "ssh", "bridge_client_ed25519"),
+		expandPath("~/.ssh/id_ed25519"),
+		expandPath("~/.ssh/id_ed25519_byted"),
+	} {
+		if regularFile(identity) && regularFile(identity+".pub") {
 			m.SSH.CPA.IdentityFile = identity
+			break
 		}
 	}
 }

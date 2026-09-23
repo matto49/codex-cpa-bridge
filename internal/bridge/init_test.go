@@ -83,6 +83,34 @@ func TestDiscoverLocalSSHFromExistingState(t *testing.T) {
 	}
 }
 
+func TestDiscoverLocalSSHUsesDedicatedIdentityBeforePersonalKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	m := DefaultManifest()
+	m.Runtime.StateDir = filepath.Join(home, "bridge-state")
+	sshdConfig := filepath.Join(m.Runtime.StateDir, "ssh", "sshd_config")
+	if err := os.MkdirAll(filepath.Dir(sshdConfig), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sshdConfig, []byte("# managed-by: codex-cpa-bridge\nListenAddress 127.0.0.1\nPort 24222\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	personal := filepath.Join(home, ".ssh", "id_ed25519")
+	if err := os.MkdirAll(filepath.Dir(personal), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dedicated := bridgeClientIdentityPath(m)
+	for _, path := range []string{personal, personal + ".pub", dedicated, dedicated + ".pub"} {
+		if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	discoverLocalSSH(&m)
+	if m.SSH.CPA.IdentityFile != dedicated {
+		t.Fatalf("identity = %q, want dedicated %q", m.SSH.CPA.IdentityFile, dedicated)
+	}
+}
+
 func TestSharedOfficialCatalogRequiresMatchingEndpoint(t *testing.T) {
 	home := t.TempDir()
 	catalog := filepath.Join(home, "models.json")

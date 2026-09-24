@@ -78,7 +78,14 @@ func InstallRemote(target, binary string, options RemoteInstallOptions) (RemoteI
 		if _, err := exec.CommandContext(ctx, "scp", "-q", "-B", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=5", binary, scpTarget).CombinedOutput(); err != nil {
 			return report, fmt.Errorf("cannot upload remote CLI: %w", err)
 		}
-		installScript := `set -eu; current="$HOME/.local/bin/bridge-go"; staged="$HOME/` + staged + `"; backup=""; if [ -f "$current" ]; then backup="$current.bak.$(date +%Y%m%d%H%M%S)"; cp -p "$current" "$backup"; fi; chmod 700 "$staged"; mv "$staged" "$current"; printf 'backup=%s\n' "$backup"`
+		stagedHash, err := remoteShell(ctx, target, `sha256sum "$HOME/`+staged+`" | cut -d ' ' -f1`)
+		if err != nil || strings.TrimSpace(stagedHash) != localHash {
+			// The random staging path is bridge-owned; never activate an
+			// incomplete or modified upload over a working remote binary.
+			_, _ = remoteShell(ctx, target, `rm -f "$HOME/`+staged+`"`)
+			return report, errors.New("uploaded remote CLI checksum does not match the local binary")
+		}
+		installScript := `set -eu; current="$HOME/.local/bin/bridge-go"; staged="$HOME/` + staged + `"; backup=""; if [ -f "$current" ]; then backup="$current.bak.$(date +%Y%m%d%H%M%S).` + hex.EncodeToString(nonce[:]) + `"; cp -p "$current" "$backup"; fi; chmod 700 "$staged"; mv "$staged" "$current"; printf 'backup=%s\n' "$backup"`
 		installed, err := remoteShell(ctx, target, installScript)
 		if err != nil {
 			return report, fmt.Errorf("cannot activate remote CLI: %w", err)

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronRight, CircleAlert, Power, RefreshCw, Server, Settings2, SlidersHorizontal, TerminalSquare } from "lucide-react";
 import { CatalogBootstrapReport, ClaudeInitReport, Doctor, Model, ModelReport, PlatformSyncReport, PlatformsReport, RemoteReport, RemoteSyncReport, Status, bootstrapCatalog, getDoctor, getModels, getPlatformPlan, getPlatforms, getStatus, initClaude, initManifest, previewRemoteSync, runAction, scanRemote, setModelVisibility, syncPlatforms, syncRemote } from "./api";
+import { syncSummary, syncTargets } from "./syncFlow";
+import type { SyncOutcome } from "./syncFlow";
 import bridgeIcon from "../src-tauri/icons/bridge.svg";
 
 type View = "overview" | "models" | "settings";
@@ -83,16 +85,27 @@ function Overview({ status, doctor, busy, onRefresh, onAction }: { status?: Stat
   );
 }
 
-function Models({ report, plan, syncResult, remoteTarget, query, setQuery, onToggle, onSync, busy }: { report?: ModelReport; plan?: PlatformSyncReport; syncResult?: PlatformSyncReport; remoteTarget: string; query: string; setQuery: (value: string) => void; onToggle: (model: Model) => void; onSync: () => void; busy: boolean }) {
+function Models({ report, plan, syncOutcome, syncing, loading, remoteTarget, query, setQuery, onToggle, onSync, busy }: { report?: ModelReport; plan?: PlatformSyncReport; syncOutcome?: SyncOutcome; syncing: boolean; loading: boolean; remoteTarget: string; query: string; setQuery: (value: string) => void; onToggle: (model: Model) => void; onSync: () => void; busy: boolean }) {
   const filtered = useMemo(() => report?.models.filter((model) => `${model.display_name} ${model.slug}`.toLowerCase().includes(query.toLowerCase())) ?? [], [report, query]);
   const visible = report?.models.filter((model) => model.visibility === "list").length ?? 0;
   return (
     <div className="view">
-      <header className="page-head"><div><h1>Models</h1><p>{visible} visible of {report?.models.length ?? 0} · Toggles sync CPA-backed clients{remoteTarget ? ` and ${remoteTarget}` : ""}; reconnect active sessions after changes</p></div></header>
+      <header className="page-head"><div><h1>Models</h1><p>{loading ? "Loading model catalog…" : report ? `${visible} visible of ${report.models.length} · Changes save to the catalog, then sync each CPA-backed target independently; reconnect active sessions` : "Model catalog unavailable; check the manifest path and CPA profile in Settings."}</p></div></header>
       <section className="sync-panel">
         <div className="sync-panel-head"><div><h2>Platform sync</h2><p>Preview changes before writing. Unrelated configurations are preserved. xbot disables models but still lists them greyed out.</p></div><button className="primary" onClick={onSync} disabled={busy || !plan}>{remoteTarget ? "Sync local + remote" : "Sync local platforms"}</button></div>
         {plan?.items.map((item) => <div className="sync-row" key={item.id}><strong>{item.id}</strong><span className={`platform-state ${item.action}`}>{item.action}</span><span>{item.detail}{item.add?.length ? ` · ${item.id === "xbot" ? "Enable" : "Add"}: ${item.add.join(", ")}` : ""}{item.remove?.length ? ` · ${item.id === "xbot" ? "Disable" : "Remove"}: ${item.remove.join(", ")}` : ""}</span></div>) ?? <p className="section-help">Sync preview unavailable. Check the desktop app and manifest.</p>}
-        {syncResult && <p className="section-help">Last sync: {syncResult.changed} updated, {syncResult.failed} blocked or failed. {syncResult.items.filter((item) => item.result === "updated").map((item) => `${item.id} backed up to ${item.backup}`).join(" · ")}</p>}
+        {(syncOutcome || syncing) && <div className="sync-results" role="status" aria-live="polite">
+          <strong>{syncing ? "Sync in progress" : "Last sync results"}</strong>
+          {syncing && !syncOutcome?.local && !syncOutcome?.localError && <p className="sync-pending">Local: waiting for result…</p>}
+          {syncOutcome?.local && <>
+            <p>Local: {syncOutcome.local.changed} updated, {syncOutcome.local.failed} blocked or failed.</p>
+            {syncOutcome.local.items.map((item) => <div className="sync-row" key={item.id}><strong>{item.id}</strong><span className={`platform-state ${item.result ?? item.action}`}>{item.result ?? item.action}</span><span>{item.detail}{item.backup ? ` · Backup: ${item.backup}` : ""}</span></div>)}
+          </>}
+          {syncOutcome?.localError && <p className="sync-error">Local sync failed: {syncOutcome.localError}. Retry the local target.</p>}
+          {syncing && remoteTarget && !syncOutcome?.remote && !syncOutcome?.remoteError && <p className="sync-pending">Remote {remoteTarget}: waiting for result…</p>}
+          {syncOutcome?.remote && <p>Remote {syncOutcome.remote.target}: {syncOutcome.remote.action} · {syncOutcome.remote.detail}{syncOutcome.remote.model_policy.missing?.length ? ` Unavailable: ${syncOutcome.remote.model_policy.missing.join(", ")}.` : ""}</p>}
+          {syncOutcome?.remoteError && <p className="sync-error">Remote sync failed: {syncOutcome.remoteError}. Retry the remote target.</p>}
+        </div>}
       </section>
       <div className="model-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter models" aria-label="Filter models" /><code>{report?.path ?? "No catalog configured"}</code></div>
       <section className="model-table">
@@ -105,7 +118,8 @@ function Models({ report, plan, syncResult, remoteTarget, query, setQuery, onTog
             <Toggle checked={model.visibility === "list"} onChange={() => onToggle(model)} label={`Show ${model.display_name || model.slug}`} disabled={busy} />
           </div>
         ))}
-        {filtered.length === 0 && <div className="empty">No matching models</div>}
+        {!report && <div className="empty" role={loading ? "status" : "alert"}>{loading ? "Loading model catalog…" : "Model catalog could not be loaded. Check Settings and retry the status refresh."}</div>}
+        {report && filtered.length === 0 && <div className="empty">No matching models</div>}
       </section>
     </div>
   );
@@ -192,7 +206,8 @@ export default function App() {
   const [platforms, setPlatforms] = useState<PlatformsReport>();
   const [platformPlan, setPlatformPlan] = useState<PlatformSyncReport>();
   const [catalogPreview, setCatalogPreview] = useState<CatalogBootstrapReport>();
-  const [syncResult, setSyncResult] = useState<PlatformSyncReport>();
+  const [syncOutcome, setSyncOutcome] = useState<SyncOutcome>();
+  const [syncing, setSyncing] = useState(false);
   const [remoteTarget, updateRemoteTarget] = useState(() => localStorage.getItem("bridge-remote-target") || "");
   const [remoteStatus, setRemoteStatus] = useState<RemoteReport>();
   const [remotePlan, setRemotePlan] = useState<RemoteSyncReport>();
@@ -234,7 +249,7 @@ export default function App() {
   }, [beginWork, endWork, manifest]);
 
   useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => { setRemoteStatus(undefined); setRemotePlan(undefined); setRemoteResult(undefined); setCatalogPreview(undefined); setSyncResult(undefined); }, [manifest]);
+  useEffect(() => { setRemoteStatus(undefined); setRemotePlan(undefined); setRemoteResult(undefined); setCatalogPreview(undefined); setSyncOutcome(undefined); setSyncing(false); }, [manifest]);
 
   function loadManifest() {
     const next = manifestDraft.trim();
@@ -255,30 +270,38 @@ export default function App() {
   async function toggleModel(model: Model) {
     const visibility = model.visibility === "list" ? "hide" : "list";
     beginWork();
-    setSyncResult(undefined);
-    try { await setModelVisibility(manifest, model.slug, visibility); await performSync(); }
-    catch (error) { await refresh(); setNotice(String(error)); }
-    finally { endWork(); }
+    setSyncOutcome(undefined);
+    try {
+      try { await setModelVisibility(manifest, model.slug, visibility); }
+      catch (error) { await refresh(); setNotice(`Catalog visibility was not saved: ${String(error)}`); return; }
+      try { await performSync(true); }
+      catch (error) { await refresh(); setNotice(`Catalog visibility was saved, but sync could not complete: ${String(error)}`); }
+    } finally { endWork(); }
   }
 
-  async function performSync() {
-    const local = await syncPlatforms(manifest);
-    let remote: RemoteSyncReport | undefined;
-    let remoteError: string | undefined;
-    if (remoteTarget.trim()) {
-      try { remote = await syncRemote(manifest, remoteTarget.trim()); }
-      catch (error) { remoteError = String(error); }
-    }
-    await refresh();
-    setSyncResult(local);
-    if (remote) setRemoteResult(remote);
-    setNotice(`Local: ${local.changed} updated, ${local.failed} blocked or failed.${remote ? ` Remote: ${remote.detail}` : remoteError ? ` Remote failed: ${remoteError}` : ""}`);
+  async function performSync(catalogSaved = false) {
+    const target = remoteTarget.trim();
+    setSyncOutcome({});
+    setSyncing(true);
+    setRemoteResult(undefined);
+    if (target) setRemotePlan(undefined);
+    try {
+      const outcome = await syncTargets(
+        () => syncPlatforms(manifest),
+        target ? () => syncRemote(manifest, target) : undefined,
+        setSyncOutcome,
+      );
+      await refresh();
+      setSyncOutcome(outcome);
+      setRemoteResult(outcome.remote);
+      setNotice(syncSummary(outcome, catalogSaved));
+    } finally { setSyncing(false); }
   }
 
   async function syncModels() {
     beginWork();
     try { await performSync(); }
-    catch (error) { setNotice(String(error)); }
+    catch (error) { setNotice(`Sync could not start: ${String(error)}`); }
     finally { endWork(); }
   }
 
@@ -308,6 +331,7 @@ export default function App() {
     setRemoteStatus(undefined);
     setRemotePlan(undefined);
     setRemoteResult(undefined);
+    setSyncOutcome(undefined);
   }
 
   async function checkRemote() {
@@ -341,7 +365,7 @@ export default function App() {
       <Sidebar view={view} onView={setView} />
       <div className="content">
         {view === "overview" && <Overview status={current ? status : undefined} doctor={current ? doctor : undefined} busy={busy || !current} onRefresh={refresh} onAction={action} />}
-        {view === "models" && <Models report={current ? models : undefined} plan={current ? platformPlan : undefined} syncResult={current ? syncResult : undefined} remoteTarget={remoteTarget} query={query} setQuery={setQuery} onToggle={toggleModel} onSync={syncModels} busy={busy || !current} />}
+        {view === "models" && <Models report={current ? models : undefined} plan={current ? platformPlan : undefined} syncOutcome={current ? syncOutcome : undefined} syncing={syncing} loading={!current} remoteTarget={remoteTarget} query={query} setQuery={setQuery} onToggle={toggleModel} onSync={syncModels} busy={busy || !current} />}
         {view === "settings" && <Settings manifest={manifest} manifestDraft={manifestDraft} setManifestDraft={setManifestDraft} onLoadManifest={loadManifest} status={current ? status : undefined} catalogReady={current && Boolean(models)} catalogPreview={current ? catalogPreview : undefined} platforms={current ? platforms : undefined} remoteTarget={remoteTarget} setRemoteTarget={setRemoteTarget} remoteStatus={current ? remoteStatus : undefined} remotePlan={current ? remotePlan : undefined} remoteResult={current ? remoteResult : undefined} onRemoteCheck={checkRemote} onRemoteSync={syncRemoteModels} onCatalogPreview={previewCatalogSetup} onCatalogCreate={createCatalog} onClaudeCreated={refresh} onNotice={setNotice} onBeginWork={beginWork} onEndWork={endWork} onAction={action} onInit={initializeManifest} busy={busy || !current} />}
         {notice && <div className="toast"><span>{notice}</span><button aria-label="Dismiss" onClick={() => setNotice(undefined)}>×</button></div>}
       </div>

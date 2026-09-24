@@ -78,10 +78,18 @@ dd { min-width: 0; margin: 0; overflow: hidden; color: #424946; font-family: ui-
 .sync-panel-head p { color: #747b78; font-size: 11px; }
 .sync-row { display: grid; grid-template-columns: 62px 65px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid #edf0ed; font-size: 11px; }
 .sync-row > span:last-child { color: #626a66; line-height: 1.4; }
+.sync-results { margin-top: 12px; padding-top: 11px; border-top: 1px solid #dce3dd; font-size: 11px; }
+.sync-results > strong { display: block; margin-bottom: 7px; font-size: 12px; }
+.sync-results p { margin: 6px 0; color: #4d5751; line-height: 1.5; overflow-wrap: anywhere; }
+.sync-results .sync-row > span:last-child { overflow-wrap: anywhere; }
+.sync-results .sync-error { color: #9b4e2f; }
+.sync-results .sync-pending { color: #7c8580; }
 .sync-panel .section-help { margin: 10px 0 0; }
 .platform-state.noop { background: #e6f3eb; color: #17653e; }
+.platform-state.updated { background: #e6f3eb; color: #17653e; }
 .platform-state.skipped { background: #edf0ee; color: #5d6861; }
 .platform-state.blocked { background: #fff0e9; color: #9b4e2f; }
+.platform-state.failed { background: #fff0e9; color: #9b4e2f; }
 .model-toolbar input, .settings-section input { height: 36px; border: 1px solid #d5dad6; border-radius: 6px; outline: 0; background: #fff; color: #2e3432; font-size: 12px; }
 .model-toolbar input { width: 240px; padding: 0 12px; }
 .model-toolbar input:focus, .settings-section input:focus { border-color: #859c90; box-shadow: 0 0 0 3px #e1e8e3; }

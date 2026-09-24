@@ -27,6 +27,7 @@ The desktop UI must show the target path, detected provider, management state, p
 - Previewing Claude initialization leaves the filesystem unchanged; applying it creates a private file only when the target is still absent. An existing unrelated Claude relay is preserved byte-for-byte.
 - Disabling a model in the bridge and syncing removes it from each managed platform's picker; enabling restores it. Repeating sync makes no changes.
 - If one platform cannot be synchronized, the result names that platform and leaves its current config intact; successful platforms remain reported individually.
+- After a model toggle saves the source catalog, local and configured remote sync are attempted independently. A failure in either target does not suppress the other. Each target's result appears as it completes, and the UI distinguishes the saved catalog state from per-platform propagation results and retryable errors.
 - Remote SSH scan verifies the resolved host, key authentication, endpoint health, and the effective `CODEX_HOME`, rather than treating an open TCP port as full readiness.
 - A fresh clone can build and launch with a portable example manifest; the README states prerequisites, limits, and verification steps.
 

@@ -168,7 +168,7 @@ npm run tauri build
 open "src-tauri/target/release/bundle/macos/Codex CPA Bridge.app"
 ```
 
-The `.app` bundles the Go CLI as a sidecar. On first launch, enter a manifest path in Settings, click “Load manifest”, then use “Initialize from this Mac” if a CPA-backed Codex profile already exists. If the catalog or Claude settings are missing, Settings offers separate preview/create actions with the safety checks above. In Models, toggles write the source catalog and immediately run local sync; if a remote SSH target is configured in Settings, they also run remote sync. Each target remains separately reported, and active Codex/Claude/xbot sessions may need reconnect or refresh.
+The `.app` bundles the Go CLI as a sidecar. On first launch, enter a manifest path in Settings, click “Load manifest”, then use “Initialize from this Mac” if a CPA-backed Codex profile already exists. If the catalog or Claude settings are missing, Settings offers separate preview/create actions with the safety checks above. In Models, toggles write the source catalog and then attempt local and configured remote sync independently. Each target's outcome appears as it completes and stays visible with retryable errors; a failed target cannot suppress another target's result. Active Codex/Claude/xbot sessions may need reconnect or refresh.
 
 The icon source is `ui/src-tauri/icons/bridge.svg`; regenerate the PNG after changing it with `rsvg-convert -w 512 -h 512 -o ui/src-tauri/icons/icon.png ui/src-tauri/icons/bridge.svg`. The app detects a front-end boot failure and shows an error instead of an empty window. An unsigned local build is suitable for development only; signing, notarization, and clean-machine installation are not yet verified.
 
@@ -179,7 +179,7 @@ Successful GitHub Actions runs also retain a Linux/amd64 CLI tarball and a zippe
 ```sh
 go test -race ./...
 go vet ./...
-cd ui && npm ci && npm run tauri build
+cd ui && npm ci && npm test && npm run tauri build
 ```
 
 GitHub Actions runs these checks on every push and pull request. Local `doctor --json` checks profile isolation, authenticated CPA `/models`, and SSH readiness. Add `--probe-responses` for a minimal Codex inference request, or `--probe-anthropic claude-sonnet-4-6` for an explicitly requested Anthropic `/v1/messages` inference check; both can consume upstream quota. The Anthropic probe reports only protocol status, never the credential or model output. A successful probe verifies CPA's Messages endpoint, not Claude Code's own authentication or picker behavior. The project is licensed under [MIT](LICENSE).

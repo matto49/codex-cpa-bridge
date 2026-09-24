@@ -44,7 +44,7 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 	}
 	if len(report.ModelPolicy.Missing) > 0 {
 		if !write {
-			report.Detail = fmt.Sprintf("Remote catalog is missing %d source models; write will refresh the catalog and sync matching models", len(report.ModelPolicy.Missing))
+			report.Detail = remotePreviewDetail(report.ModelPolicy)
 			return report, nil
 		}
 		refreshCommand := `"$HOME/.local/bin/bridge-go" --manifest "$HOME/.config/codex-cpa-bridge/bridge.toml" models refresh --json`
@@ -63,7 +63,7 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 		}
 	}
 	if !write {
-		report.Detail = fmt.Sprintf("Remote catalog would change %d model visibility flags; pass --write to apply", len(report.ModelPolicy.Changes))
+		report.Detail = remotePreviewDetail(report.ModelPolicy)
 		return report, nil
 	}
 	if err := remoteModelPolicy(ctx, target, "apply", encoded, &report.ModelPolicy); err != nil {
@@ -81,23 +81,69 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 		}
 	}
 	if err != nil {
-		report.Detail = "Model policy applied, but remote platform sync failed; inspect the per-platform report"
+		report.Action = "needs_attention"
+		report.Detail = "Remote platform sync failed after model policy processing; inspect the per-platform report"
 		return report, nil
 	}
 	verified, err := ScanRemote(target)
 	if err == nil {
 		report.RemoteReady = verified.Ready
 	}
-	if report.RemoteReady && report.Platforms.Failed == 0 {
-		if len(report.ModelPolicy.Missing) > 0 {
-			report.Detail = fmt.Sprintf("Matching models synchronized; %d source models are unavailable from remote CPA. Reconnect running Codex sessions.", len(report.ModelPolicy.Missing))
-		} else {
-			report.Detail = "Remote model visibility synchronized; reconnect running Codex sessions to refresh the picker"
-		}
-	} else {
-		report.Detail = "Remote model policy was applied, but readiness or platform propagation needs attention"
-	}
+	finishRemoteSyncReport(&report)
 	return report, nil
+}
+
+func remotePreviewDetail(policy ModelPolicyReport) string {
+	if len(policy.Missing) == 0 {
+		if len(policy.Changes) == 0 {
+			return "Remote model visibility already matches; no write needed"
+		}
+		return fmt.Sprintf("Remote catalog would change %d model visibility flags; pass --write to apply", len(policy.Changes))
+	}
+	modelWord := "models"
+	if len(policy.Missing) == 1 {
+		modelWord = "model"
+	}
+	if len(policy.Changes) == 0 {
+		return fmt.Sprintf("Shared model visibility already matches; remote CPA lacks %d source %s. Write can retry catalog refresh, but cannot add models CPA does not advertise", len(policy.Missing), modelWord)
+	}
+	changeWord := "changes"
+	if len(policy.Changes) == 1 {
+		changeWord = "change"
+	}
+	return fmt.Sprintf("Remote catalog is missing %d source %s; write will retry catalog refresh and apply %d shared visibility %s. Missing models may remain unavailable", len(policy.Missing), modelWord, len(policy.Changes), changeWord)
+}
+
+func finishRemoteSyncReport(report *RemoteSyncReport) {
+	if !report.RemoteReady || report.Platforms.Failed > 0 {
+		report.Action = "needs_attention"
+		report.Detail = "Remote readiness or platform propagation needs attention; inspect the per-platform report"
+		return
+	}
+	changed := report.ModelPolicy.Applied || report.CatalogRefresh != nil && report.CatalogRefresh.Written || report.Platforms.Changed > 0
+	if len(report.ModelPolicy.Missing) == 0 {
+		if changed {
+			report.Detail = "Remote model visibility synchronized; reconnect running Codex sessions to refresh the picker"
+		} else {
+			report.Action = "unchanged"
+			report.Detail = "Remote model visibility already matches; no changes applied"
+		}
+		return
+	}
+	if !changed {
+		report.Action = "unchanged_partial"
+		modelWord, verb := "models", "remain"
+		if len(report.ModelPolicy.Missing) == 1 {
+			modelWord, verb = "model", "remains"
+		}
+		report.Detail = fmt.Sprintf("Shared model visibility already matches; %d source %s %s unavailable from remote CPA.", len(report.ModelPolicy.Missing), modelWord, verb)
+		return
+	}
+	modelWord, verb := "models", "are"
+	if len(report.ModelPolicy.Missing) == 1 {
+		modelWord, verb = "model", "is"
+	}
+	report.Detail = fmt.Sprintf("Matching models synchronized; %d source %s %s unavailable from remote CPA. Reconnect running Codex sessions.", len(report.ModelPolicy.Missing), modelWord, verb)
 }
 
 func remoteModelPolicy(ctx context.Context, target, action string, policy []byte, report *ModelPolicyReport) error {

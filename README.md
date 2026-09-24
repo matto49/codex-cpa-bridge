@@ -129,6 +129,8 @@ make remote-binary
 
 `remote sync` without `--write` is a preview. Apply only after reviewing the report. `remote install --setup` is an explicit write operation: it may update bridge-owned files, start the remote loopback sshd, and generate `~/.codex-cpa-bridge/ssh/client_ed25519` only when no bridge key or explicit identity is configured. It refuses unmanaged files unless the operator repairs them separately; an existing or partial key pair is never replaced. The installer does not copy local secrets, and remote CPA credentials/catalog may still require host-specific setup.
 
+Remote sync never claims a source model is available when the remote CPA does not advertise it. It reports those IDs in `model_policy.missing`; after a refresh that finds no new models and no visibility drift, a write reports `unchanged_partial` rather than claiming to apply changes. A fully aligned remote reports `unchanged`.
+
 The install report distinguishes `doctor_checked` from `doctor_ready`: if setup fails before doctor runs, `doctor_issues: 0` does not imply a healthy remote bridge. Known setup failures are classified without echoing remote command output or credentials.
 
 Keep `runtime.state_dir` beneath a private home directory. OpenSSH `StrictModes` checks the `authorized_keys` path through the account home (or through the filesystem root for paths outside that home). A public writable directory such as `/tmp` on that checked path is rejected even when the key file is mode `0600`; setup detects this before writing. Shared mount ancestors above an otherwise private home are not rejected.

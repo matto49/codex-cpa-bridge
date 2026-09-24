@@ -44,6 +44,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: node --check ../scripts/verify-codex-visibility.mjs
+      - run: node --check ../scripts/verify-claude-proxy.mjs
 
   macos-bundle:
     runs-on: macos-15

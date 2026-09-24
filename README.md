@@ -182,6 +182,8 @@ GitHub Actions runs these checks on every push and pull request. Local `doctor -
 
 To verify Codex picker visibility without changing your active profile, run `node scripts/verify-codex-visibility.mjs /path/to/model-catalog.json MODEL_SLUG`. It copies the catalog into a temporary `CODEX_HOME`, starts fresh Codex app-server instances, and checks that the model appears when enabled, disappears from the default `model/list` response when hidden, and is marked `hidden=true` when `includeHidden` is requested. See the [official app-server model catalog contract](https://developers.openai.com/codex/app-server/). This verifies a fresh Codex runtime; an already-running Codex session may still need reconnecting to load catalog changes.
 
+To check the bridge-generated Claude settings against a real Claude Code executable without using CPA or spending upstream quota, run `make build` and `node scripts/verify-claude-proxy.mjs /path/to/claude ./bin/bridge-go`. The script creates a private temporary manifest and settings file, uses a fake API key and loopback Anthropic mock, and removes its test files afterward. It validates client configuration and a Messages request, but not the live CPA account or Claude's interactive model picker.
+
 
 ## Egress SOCKS5 Proxy (for Gemini & CloudCode)
 

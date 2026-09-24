@@ -63,14 +63,15 @@ try {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
-  const baseURL = `http://127.0.0.1:${server.address().port}`;
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const baseURL = origin + (process.env.BRIDGE_CLAUDE_TEST_V1 === '1' ? '/v1' : '');
   const manifestPath = join(temporary, 'bridge.toml');
   const catalogPath = join(temporary, 'catalog.json');
   const settingsPath = join(temporary, 'claude', 'settings.json');
   await writeFile(catalogPath, JSON.stringify({ models: [{ slug: model, visibility: 'list' }, { slug: 'hidden-model', visibility: 'hide' }] }), { mode: 0o600 });
   await writeFile(manifestPath, [
     '[profiles.cpa]',
-    `endpoint = ${JSON.stringify(`${baseURL}/v1`)}`,
+    `endpoint = ${JSON.stringify(`${origin}/v1`)}`,
     `model_catalog_json = ${JSON.stringify(catalogPath)}`,
     '[platforms]',
     `claude_settings_json = ${JSON.stringify(settingsPath)}`,
@@ -82,7 +83,7 @@ try {
   ], { encoding: 'utf8', env: { ...process.env, HOME: temporary } }));
   const settings = JSON.parse(await readFile(settingsPath, 'utf8'));
   const settingsMode = (await stat(settingsPath)).mode & 0o777;
-  if (initReport.action !== 'created' || settingsMode !== 0o600 || settings.env?.ANTHROPIC_BASE_URL !== baseURL || !settings.enforceAvailableModels || JSON.stringify(settings.availableModels) !== JSON.stringify([model])) {
+  if (initReport.action !== 'created' || initReport.base_url !== origin || settingsMode !== 0o600 || settings.env?.ANTHROPIC_BASE_URL !== origin || !settings.enforceAvailableModels || JSON.stringify(settings.availableModels) !== JSON.stringify([model])) {
     throw new Error('bridge did not create the expected private Claude settings');
   }
   const output = await new Promise((resolve, reject) => {

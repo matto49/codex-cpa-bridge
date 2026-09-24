@@ -140,10 +140,10 @@ function ClaudeInitSection({ manifest, status, onCreated, onNotice, onBeginWork,
 
   return <section className="settings-section">
     <h2>Initialize Claude Code</h2>
-    <p className="section-help">Only for a missing settings file. Use an Anthropic-compatible base URL on this CPA endpoint; no token is stored or copied.</p>
-    <label><span>Anthropic base URL</span><input value={baseURL} onChange={(event) => { setBaseURL(event.target.value); setPreview(undefined); }} placeholder={status?.cpa_endpoint ?? "http://127.0.0.1:8317"} disabled={busy || working} /></label>
+    <p className="section-help">Only for a missing settings file. Use an Anthropic-compatible base URL on this CPA endpoint, without /v1 (Claude Code adds it). No token is stored or copied.</p>
+    <label><span>Anthropic base URL</span><input value={baseURL} onChange={(event) => { setBaseURL(event.target.value); setPreview(undefined); }} placeholder={status?.cpa_endpoint?.replace(/\/v1\/?$/, "") ?? "http://127.0.0.1:8317"} disabled={busy || working} /></label>
     <div className="remote-actions"><button className="secondary" onClick={previewInit} disabled={busy || working || !baseURL.trim()}>Preview Claude settings</button><button className="primary" onClick={createSettings} disabled={busy || working || !preview || !confirmProtocol || !confirmAuth}>Create settings</button></div>
-    {preview && <div className="remote-summary"><strong>Preview: {preview.visible_models} visible models</strong><p>{preview.path}</p><p>{preview.detail}</p></div>}
+    {preview && <div className="remote-summary"><strong>Preview: {preview.visible_models} visible models</strong><p>{preview.path}</p><p>Claude base URL: {preview.base_url}</p><p>{preview.detail}</p></div>}
     {preview && <div className="confirmations">
       <label><input type="checkbox" checked={confirmProtocol} onChange={(event) => setConfirmProtocol(event.target.checked)} /><span>I confirmed this CPA URL supports Claude's Anthropic API.</span></label>
       <label><input type="checkbox" checked={confirmAuth} onChange={(event) => setConfirmAuth(event.target.checked)} /><span>I have provisioned Claude credentials outside settings.json.</span></label>

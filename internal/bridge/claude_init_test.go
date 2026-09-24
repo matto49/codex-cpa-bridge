@@ -67,6 +67,35 @@ func TestClaudeInitPreviewCreateAndScan(t *testing.T) {
 	}
 }
 
+func TestClaudeInitNormalizesTrailingV1(t *testing.T) {
+	for _, tc := range []struct {
+		endpoint string
+		input    string
+		want     string
+	}{
+		{"http://127.0.0.1:8317/v1", "http://127.0.0.1:8317/v1/", "http://127.0.0.1:8317"},
+		{"https://proxy.example/api/v1", "https://proxy.example/api/v1", "https://proxy.example/api"},
+	} {
+		m := claudeInitFixture(t)
+		m.Profiles.CPA.Endpoint = tc.endpoint
+		preview, err := InitClaudeSettings(m, tc.input, false, false, false)
+		if err != nil || preview.BaseURL != tc.want {
+			t.Fatalf("preview for %q = %+v, %v", tc.input, preview, err)
+		}
+		created, err := InitClaudeSettings(m, tc.input, true, true, true)
+		if err != nil || created.BaseURL != tc.want {
+			t.Fatalf("create for %q = %+v, %v", tc.input, created, err)
+		}
+		var settings struct {
+			Env map[string]string `json:"env"`
+		}
+		content, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+		if err != nil || json.Unmarshal(content, &settings) != nil || settings.Env["ANTHROPIC_BASE_URL"] != tc.want {
+			t.Fatalf("wrong settings for %q: %s, %v", tc.input, content, err)
+		}
+	}
+}
+
 func TestClaudeInitProtectsUnrelatedFileAndSymlink(t *testing.T) {
 	m := claudeInitFixture(t)
 	if err := os.MkdirAll(filepath.Dir(m.Platforms.ClaudeSettingsJSON), 0o700); err != nil {

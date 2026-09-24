@@ -34,9 +34,13 @@ func InitClaudeSettings(m Manifest, baseURL string, confirmProtocol, confirmAuth
 	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || !sameEndpoint(baseURL, m.Profiles.CPA.Endpoint) {
 		return ClaudeInitReport{}, errors.New("Claude base URL must be a credential-free URL on the configured CPA endpoint")
 	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return ClaudeInitReport{}, errors.New("Claude base URL must use HTTP or HTTPS")
+	}
 	if parsed.Scheme == "http" && !claudeLoopbackHost(parsed.Hostname()) {
 		return ClaudeInitReport{}, errors.New("non-loopback Claude base URL must use HTTPS")
 	}
+	baseURL = normalizeClaudeBaseURL(baseURL)
 	if _, err := os.Lstat(path); err == nil {
 		return ClaudeInitReport{}, fmt.Errorf("Claude settings already exist at %s; refusing to replace them", path)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -87,6 +91,19 @@ func InitClaudeSettings(m Manifest, baseURL string, confirmProtocol, confirmAuth
 	report.Action = "created"
 	report.Detail = "Claude settings created; reconnect Claude Code and verify authentication and model picker behavior"
 	return report, nil
+}
+
+// Claude Code appends /v1/messages to ANTHROPIC_BASE_URL. CPA's OpenAI-style
+// endpoint includes /v1, so remove that final segment before writing settings.
+func normalizeClaudeBaseURL(value string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(value), "/")
+	parsed, err := url.Parse(trimmed)
+	if err != nil || !strings.HasSuffix(parsed.Path, "/v1") {
+		return value
+	}
+	parsed.Path = strings.TrimSuffix(parsed.Path, "/v1")
+	parsed.RawPath = ""
+	return strings.TrimRight(parsed.String(), "/")
 }
 
 func claudeLoopbackHost(host string) bool {

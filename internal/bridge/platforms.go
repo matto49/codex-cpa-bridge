@@ -112,6 +112,10 @@ func scanClaude(m Manifest) PlatformReport {
 	}
 	r.CPAEndpoint = true
 	r.RestartNeeded = true
+	if normalizeClaudeBaseURL(settings.Env["ANTHROPIC_BASE_URL"]) != settings.Env["ANTHROPIC_BASE_URL"] {
+		r.State, r.Detail = "needs_setup", "Claude base URL ends in /v1, which Claude Code appends again; sync can repair it"
+		return r
+	}
 	if !settings.EnforceAvailableModels {
 		r.State, r.Detail = "needs_setup", "Model restriction is not enabled"
 		return r

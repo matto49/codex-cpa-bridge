@@ -159,6 +159,78 @@ func TestPlatformSyncPreservesUnrelatedClaude(t *testing.T) {
 	}
 }
 
+func TestPlatformSyncRepairsClaudeTrailingV1WithBackup(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317/v1")
+	before, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned := scanClaude(m); scanned.State != "needs_setup" || !strings.Contains(scanned.Detail, "/v1") {
+		t.Fatalf("scan missed invalid Claude route: %+v", scanned)
+	}
+	plan, err := PlanPlatformSync(m)
+	if err != nil || syncItem(plan, "claude").Action != "update" || !strings.Contains(syncItem(plan, "claude").Detail, "base URL") {
+		t.Fatalf("repair not previewed: %+v, %v", plan, err)
+	}
+	still, _ := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	if string(still) != string(before) {
+		t.Fatal("preview changed Claude settings")
+	}
+	result, err := SyncPlatformConfigs(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := syncItem(result, "claude")
+	if item.Result != "updated" || item.Backup == "" {
+		t.Fatalf("repair failed: %+v", item)
+	}
+	backup, err := os.ReadFile(item.Backup)
+	if err != nil || string(backup) != string(before) {
+		t.Fatalf("backup not intact: %v", err)
+	}
+	var settings struct {
+		Env                    map[string]string `json:"env"`
+		AvailableModels        []string          `json:"availableModels"`
+		EnforceAvailableModels bool              `json:"enforceAvailableModels"`
+		Hooks                  map[string]int    `json:"hooks"`
+	}
+	after, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	if err != nil || json.Unmarshal(after, &settings) != nil {
+		t.Fatalf("invalid settings: %v", err)
+	}
+	if settings.Env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:8317" || settings.Env["ANTHROPIC_AUTH_TOKEN"] != "secret-test" || !settings.EnforceAvailableModels || !reflect.DeepEqual(settings.AvailableModels, []string{"gpt-6-sol"}) || settings.Hooks["a"] != 1 {
+		t.Fatalf("repair lost settings: %+v", settings)
+	}
+	if scanned := scanClaude(m); scanned.State != "ready" {
+		t.Fatalf("repaired settings not ready: %+v", scanned)
+	}
+	second, err := SyncPlatformConfigs(m)
+	if err != nil || syncItem(second, "claude").Action != "noop" {
+		t.Fatalf("repair not idempotent: %+v, %v", second, err)
+	}
+}
+
+func TestPlatformSyncRepairsOnlyClaudeURLWhenModelsAlreadyMatch(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317/v1")
+	settings := `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8317/v1","ANTHROPIC_AUTH_TOKEN":"secret-test"},"availableModels":["gpt-6-sol"],"enforceAvailableModels":true}`
+	if err := os.WriteFile(m.Platforms.ClaudeSettingsJSON, []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanPlatformSync(m)
+	item := syncItem(plan, "claude")
+	if err != nil || item.Action != "update" || len(item.Add) != 0 || len(item.Remove) != 0 {
+		t.Fatalf("URL-only repair not planned: %+v, %v", item, err)
+	}
+	result, err := SyncPlatformConfigs(m)
+	if err != nil || syncItem(result, "claude").Result != "updated" {
+		t.Fatalf("URL-only repair failed: %+v, %v", result, err)
+	}
+	content, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	if err != nil || strings.Contains(string(content), "127.0.0.1:8317/v1") {
+		t.Fatalf("URL-only repair did not remove /v1: %s, %v", content, err)
+	}
+}
+
 func TestPlatformSyncRejectsConcurrentConfigEdit(t *testing.T) {
 	m := syncFixture(t, "http://127.0.0.1:8317")
 	_, changes, err := buildPlatformSync(m)

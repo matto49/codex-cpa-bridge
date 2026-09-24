@@ -156,6 +156,8 @@ func planClaudeSettings(path, endpoint string, desired []string) (PlatformSyncIt
 		item.Action, item.Detail = "skipped", "Claude settings no longer point to this CPA endpoint"
 		return item, nil
 	}
+	normalizedBaseURL := normalizeClaudeBaseURL(env["ANTHROPIC_BASE_URL"])
+	fixBaseURL := normalizedBaseURL != env["ANTHROPIC_BASE_URL"]
 	var current []string
 	if raw, ok := settings["availableModels"]; ok {
 		if err := json.Unmarshal(raw, &current); err != nil || current == nil {
@@ -181,7 +183,7 @@ func planClaudeSettings(path, endpoint string, desired []string) (PlatformSyncIt
 		}
 	}
 	item.RestartNeeded = true
-	if enforced && reflect.DeepEqual(current, desired) {
+	if enforced && reflect.DeepEqual(current, desired) && !fixBaseURL {
 		item.Action, item.Detail = "noop", "Claude already enforces the visible CPA model list"
 		return item, nil
 	}
@@ -192,6 +194,15 @@ func planClaudeSettings(path, endpoint string, desired []string) (PlatformSyncIt
 	}
 	settings["availableModels"] = modelRaw
 	settings["enforceAvailableModels"] = json.RawMessage("true")
+	if fixBaseURL {
+		env["ANTHROPIC_BASE_URL"] = normalizedBaseURL
+		envRaw, err := json.Marshal(env)
+		if err != nil {
+			item.Detail = "Cannot encode Claude environment"
+			return item, nil
+		}
+		settings["env"] = envRaw
+	}
 	next, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		item.Detail = "Cannot encode Claude settings"
@@ -199,6 +210,9 @@ func planClaudeSettings(path, endpoint string, desired []string) (PlatformSyncIt
 	}
 	next = append(next, '\n')
 	item.Action, item.Detail = "update", "Update Claude model picker; preserve other settings and back up the file"
+	if fixBaseURL {
+		item.Detail = "Fix Claude base URL (remove trailing /v1) and update model picker; preserve other settings and back up the file"
+	}
 	return item, &platformChange{path: path, previous: previous, next: next, mode: info.Mode().Perm()}
 }
 

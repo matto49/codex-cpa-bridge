@@ -22,6 +22,7 @@ type PlatformSyncItem struct {
 	Detail        string   `json:"detail"`
 	Add           []string `json:"add,omitempty"`
 	Remove        []string `json:"remove,omitempty"`
+	Unlisted      []string `json:"unlisted,omitempty"`
 	Backup        string   `json:"backup,omitempty"`
 	RestartNeeded bool     `json:"restart_needed"`
 }

@@ -160,6 +160,46 @@ func TestPlatformSyncPreservesUnrelatedClaude(t *testing.T) {
 	}
 }
 
+func TestXbotPlanReportsEnabledModelsOutsideSourceCatalogWithoutChangingThem(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317")
+	if result, err := SyncPlatformConfigs(m); err != nil || syncItem(result, "xbot").Result != "updated" {
+		t.Fatalf("initial xbot sync failed: %+v, %v", result, err)
+	}
+	query := `INSERT INTO subscription_models(id,subscription_id,model,enabled) VALUES('extra-cpa','sub-cpa','xbot-only',1); INSERT INTO subscription_models(id,subscription_id,model,enabled) VALUES('extra-other','sub-other','other-only',1);`
+	if output, err := exec.Command("sqlite3", m.Platforms.XbotDatabase, query).CombinedOutput(); err != nil {
+		t.Fatalf("add out-of-catalog models: %v: %s", err, output)
+	}
+	plan, err := PlanPlatformSync(m)
+	xbot := syncItem(plan, "xbot")
+	if err != nil || xbot.Action != "noop" || !reflect.DeepEqual(xbot.Unlisted, []string{"xbot-only"}) {
+		t.Fatalf("enabled xbot-only model was not reported: %+v, %v", xbot, err)
+	}
+	if scan := scanXbot(m); scan.State != "drift" || !strings.Contains(scan.Detail, "outside the source catalog") {
+		t.Fatalf("xbot scan concealed out-of-catalog model: %+v", scan)
+	}
+	if result, err := SyncPlatformConfigs(m); err != nil || syncItem(result, "xbot").Result != "noop" {
+		t.Fatalf("unlisted model should not be changed implicitly: %+v, %v", result, err)
+	}
+	if _, err := SetModelVisibility(m, "gpt-5.5", "list"); err != nil {
+		t.Fatal(err)
+	}
+	plan, err = PlanPlatformSync(m)
+	xbot = syncItem(plan, "xbot")
+	if err != nil || xbot.Action != "update" || !reflect.DeepEqual(xbot.Unlisted, []string{"xbot-only"}) {
+		t.Fatalf("known update concealed out-of-catalog model: %+v, %v", xbot, err)
+	}
+	if result, err := SyncPlatformConfigs(m); err != nil || syncItem(result, "xbot").Result != "updated" {
+		t.Fatalf("known xbot model did not sync: %+v, %v", result, err)
+	}
+	var rows []struct {
+		Model   string `json:"model"`
+		Enabled int    `json:"enabled"`
+	}
+	if err := xbotQuery(m.Platforms.XbotDatabase, "SELECT model,enabled FROM subscription_models WHERE id IN ('extra-cpa','extra-other') ORDER BY id", &rows); err != nil || len(rows) != 2 || rows[0].Enabled != 1 || rows[1].Enabled != 1 {
+		t.Fatalf("out-of-catalog rows were changed: %+v, %v", rows, err)
+	}
+}
+
 func TestPlatformSyncMovesHiddenClaudeDefaultAndClearsHiddenPins(t *testing.T) {
 	m := syncFixture(t, "http://127.0.0.1:8317")
 	settings := `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8317","ANTHROPIC_AUTH_TOKEN":"secret-test","ANTHROPIC_MODEL":"gpt-5.5","ANTHROPIC_DEFAULT_OPUS_MODEL":"gpt-6-sol","CLAUDE_CODE_SUBAGENT_MODEL":"gpt-5.5","KEEP_ME":"yes"},"model":"gpt-5.5","availableModels":["gpt-6-sol"],"enforceAvailableModels":true,"hooks":{"a":1}}`

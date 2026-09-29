@@ -189,8 +189,15 @@ func scanXbot(m Manifest) PlatformReport {
 	switch plan.Action {
 	case "noop":
 		// The subscription flags and preferred selections match the catalog.
+		if len(plan.Unlisted) > 0 {
+			r.State, r.Detail = "drift", fmt.Sprintf("%d enabled xbot model(s) are outside the source catalog and remain selectable; sync preserves them", len(plan.Unlisted))
+			return r
+		}
 	case "update":
 		r.State, r.Detail = "drift", "xbot subscription models differ from the CPA catalog; sync can repair them, but disabled models remain greyed out until xbot supports hiding them"
+		if len(plan.Unlisted) > 0 {
+			r.Detail += fmt.Sprintf("; %d enabled out-of-catalog model(s) will remain untouched", len(plan.Unlisted))
+		}
 		return r
 	case "skipped":
 		r.State, r.Detail = "unrelated", plan.Detail

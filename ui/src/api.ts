@@ -57,6 +57,7 @@ export type PlatformSyncItem = {
   detail: string;
   add?: string[];
   remove?: string[];
+  unlisted?: string[];
   backup?: string;
   restart_needed: boolean;
 };

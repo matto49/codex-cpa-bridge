@@ -102,6 +102,19 @@ func planXbotSnapshot(m Manifest, catalog []ModelSummary, snapshot xbotDBSnapsho
 		}
 		bySubscription[row.SubscriptionID][row.Model] = row
 	}
+	for _, sub := range snapshot.subscriptions {
+		for model, row := range bySubscription[sub.ID] {
+			if _, known := policy[model]; known || row.Enabled == 0 {
+				continue
+			}
+			label := model
+			if len(snapshot.subscriptions) > 1 {
+				label = sub.ID + "/" + model
+			}
+			item.Unlisted = append(item.Unlisted, label)
+		}
+	}
+	sort.Strings(item.Unlisted)
 	var actions []xbotDBAction
 	var defaultEdits []xbotDefaultEdit
 	for _, sub := range snapshot.subscriptions {
@@ -155,9 +168,15 @@ func planXbotSnapshot(m Manifest, catalog []ModelSummary, snapshot xbotDBSnapsho
 	item.RestartNeeded = true
 	if len(actions) == 0 && len(defaultEdits) == 0 {
 		item.Action, item.Detail, item.RestartNeeded = "noop", "xbot subscription model flags already match the catalog; disabled models remain listed but unselectable", false
+		if len(item.Unlisted) > 0 {
+			item.Detail = fmt.Sprintf("Known xbot model flags match the catalog; %d enabled out-of-catalog model(s) remain selectable and untouched", len(item.Unlisted))
+		}
 		return item, nil
 	}
 	item.Action, item.Detail = "update", fmt.Sprintf("Update %d xbot model flags and %d preferred selections across %d CPA subscription(s); disabled models remain listed but unselectable; back up first, then refresh or reconnect xbot", len(actions), len(defaultEdits), len(snapshot.subscriptions))
+	if len(item.Unlisted) > 0 {
+		item.Detail += fmt.Sprintf("; %d enabled out-of-catalog model(s) remain untouched", len(item.Unlisted))
+	}
 	return item, &xbotDBChange{path: m.Platforms.XbotDatabase, actions: actions, defaultEdits: defaultEdits}
 }
 

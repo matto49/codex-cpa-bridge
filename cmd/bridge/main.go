@@ -250,11 +250,18 @@ func run(argv []string) int {
 		case "refresh":
 			fs := flag.NewFlagSet("models refresh", flag.ContinueOnError)
 			fs.SetOutput(os.Stderr)
+			dryRun := fs.Bool("dry-run", false, "preview new CPA models without writing")
 			jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 			if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
 				return 2
 			}
-			report, err := bridge.RefreshModelCatalog(m)
+			var report bridge.CatalogRefreshReport
+			var err error
+			if *dryRun {
+				report, err = bridge.PreviewModelCatalogRefresh(m)
+			} else {
+				report, err = bridge.RefreshModelCatalog(m)
+			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "bridge models refresh: %v\n", err)
 				return 1

@@ -131,6 +131,16 @@ type cpaModelEntry struct {
 // RefreshModelCatalog adds models advertised by CPA while preserving existing
 // visibility and metadata. It does not delete or re-enable user-hidden models.
 func RefreshModelCatalog(m Manifest) (CatalogRefreshReport, error) {
+	return refreshModelCatalog(m, true)
+}
+
+// PreviewModelCatalogRefresh applies the same validation as refresh without
+// writing the catalog or a backup.
+func PreviewModelCatalogRefresh(m Manifest) (CatalogRefreshReport, error) {
+	return refreshModelCatalog(m, false)
+}
+
+func refreshModelCatalog(m Manifest, write bool) (CatalogRefreshReport, error) {
 	path := m.Profiles.CPA.ModelCatalogJSON
 	if path == "" {
 		return CatalogRefreshReport{}, errors.New("profiles.cpa.model_catalog_json is not configured")
@@ -218,7 +228,7 @@ func RefreshModelCatalog(m Manifest) (CatalogRefreshReport, error) {
 		existing[sourceModel.ID] = true
 		report.Added = append(report.Added, sourceModel.ID)
 	}
-	if len(report.Added) == 0 {
+	if len(report.Added) == 0 || !write {
 		return report, nil
 	}
 	current, err := os.ReadFile(path)

@@ -43,6 +43,15 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 		return report, err
 	}
 	if !write {
+		if len(report.ModelPolicy.Missing) > 0 {
+			refreshCommand := `"$HOME/.local/bin/bridge-go" --manifest "$HOME/.config/codex-cpa-bridge/bridge.toml" models refresh --dry-run --json`
+			if output, refreshErr := remoteCommand(ctx, target, refreshCommand, nil); refreshErr == nil {
+				var refresh CatalogRefreshReport
+				if json.Unmarshal(output, &refresh) == nil {
+					report.CatalogRefresh = &refresh
+				}
+			}
+		}
 		command := `"$HOME/.local/bin/bridge-go" --manifest "$HOME/.config/codex-cpa-bridge/bridge.toml" platforms plan --json`
 		output, err := remoteCommand(ctx, target, command, nil)
 		if err != nil {
@@ -51,7 +60,7 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 		if err := json.Unmarshal(output, &report.Platforms); err != nil {
 			return report, errors.New("remote platform plan returned invalid JSON")
 		}
-		report.Detail = remotePreviewDetail(report.ModelPolicy)
+		report.Detail = remotePreviewDetail(report.ModelPolicy, report.CatalogRefresh)
 		return report, nil
 	}
 	if len(report.ModelPolicy.Missing) > 0 {
@@ -97,7 +106,7 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 	return report, nil
 }
 
-func remotePreviewDetail(policy ModelPolicyReport) string {
+func remotePreviewDetail(policy ModelPolicyReport, refresh *CatalogRefreshReport) string {
 	if len(policy.Missing) == 0 {
 		if len(policy.Changes) == 0 {
 			return "Remote model visibility already matches; no write needed"
@@ -108,14 +117,35 @@ func remotePreviewDetail(policy ModelPolicyReport) string {
 	if len(policy.Missing) == 1 {
 		modelWord = "model"
 	}
-	if len(policy.Changes) == 0 {
-		return fmt.Sprintf("Shared model visibility already matches; remote CPA lacks %d source %s. Write can retry catalog refresh, but cannot add models CPA does not advertise", len(policy.Missing), modelWord)
+	var detail string
+	if refresh == nil {
+		detail = fmt.Sprintf("Remote catalog is missing %d source %s; live CPA availability was not verified in this preview", len(policy.Missing), modelWord)
+	} else {
+		advertised := make(map[string]bool, len(refresh.Added))
+		for _, slug := range refresh.Added {
+			advertised[slug] = true
+		}
+		refreshable := 0
+		for _, slug := range policy.Missing {
+			if advertised[slug] {
+				refreshable++
+			}
+		}
+		switch {
+		case refreshable == len(policy.Missing):
+			detail = fmt.Sprintf("Remote catalog is missing %d source %s, but authenticated CPA advertises all of them; write can refresh the catalog", len(policy.Missing), modelWord)
+		case refreshable == 0:
+			detail = fmt.Sprintf("Remote CPA does not advertise %d source %s; catalog refresh cannot add them", len(policy.Missing), modelWord)
+		default:
+			detail = fmt.Sprintf("Remote catalog is missing %d source %s; CPA advertises %d for refresh and does not advertise %d", len(policy.Missing), modelWord, refreshable, len(policy.Missing)-refreshable)
+		}
 	}
-	changeWord := "changes"
-	if len(policy.Changes) == 1 {
-		changeWord = "change"
+	if len(policy.Changes) > 0 {
+		detail += fmt.Sprintf("; write can also apply %d shared visibility change(s)", len(policy.Changes))
+	} else {
+		detail = "Shared model visibility already matches. " + detail
 	}
-	return fmt.Sprintf("Remote catalog is missing %d source %s; write will retry catalog refresh and apply %d shared visibility %s. Missing models may remain unavailable", len(policy.Missing), modelWord, len(policy.Changes), changeWord)
+	return detail
 }
 
 func finishRemoteSyncReport(report *RemoteSyncReport) {

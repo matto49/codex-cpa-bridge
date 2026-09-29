@@ -68,6 +68,15 @@ test('skipped platforms are reported separately from failures', () => {
   assert.match(syncSummary({ local: report }, false), /Local: 0 updated, 2 skipped, 0 blocked or failed/);
 });
 
+test('preserved out-of-catalog models prevent a misleading all-clear notice', () => {
+  const report = {
+    catalog_path: '/test/catalog.json', changed: 0, failed: 0,
+    items: [{ id: 'xbot', action: 'noop', result: 'noop', unlisted: ['xbot-only'] }],
+  };
+  assert.match(platformSyncSummary(report), /1 out-of-catalog model preserved/);
+  assert.match(syncSummary({ local: report }, true), /Catalog visibility saved.*out-of-catalog model preserved/);
+});
+
 test('remote partial result includes its per-platform outcome in the notice', () => {
   const platforms = {
     catalog_path: '/test/remote-catalog.json', changed: 1, failed: 1,

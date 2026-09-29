@@ -124,6 +124,13 @@ func finishRemoteSyncReport(report *RemoteSyncReport) {
 		report.Detail = "Remote readiness or platform propagation needs attention; inspect the per-platform report"
 		return
 	}
+	for _, item := range report.Platforms.Items {
+		if item.ID == "xbot" && len(item.Unlisted) > 0 {
+			report.Action = "needs_attention"
+			report.Detail = "Remote xbot has enabled models outside the source catalog; inspect the per-platform report before claiming full sync"
+			return
+		}
+	}
 	changed := report.ModelPolicy.Applied || report.CatalogRefresh != nil && report.CatalogRefresh.Written || report.Platforms.Changed > 0
 	if len(report.ModelPolicy.Missing) == 0 {
 		if changed {

@@ -86,7 +86,7 @@ function Overview({ status, doctor, busy, onRefresh, onAction }: { status?: Stat
 }
 
 function PlatformResultRows({ report }: { report: PlatformSyncReport }) {
-  return <>{report.items.map((item) => <div className="sync-row" key={item.id}><strong>{item.id}</strong><span className={`platform-state ${item.result ?? item.action}`}>{item.result ?? item.action}</span><span>{item.detail}{item.backup ? ` · Backup: ${item.backup}` : ""}</span></div>)}</>;
+  return <>{report.items.map((item) => <div className="sync-row" key={item.id}><strong>{item.id}</strong><span className={`platform-state ${item.result ?? item.action}`}>{item.result ?? item.action}</span><span>{item.detail}{item.unlisted?.length ? ` · Outside catalog (preserved): ${item.unlisted.join(", ")}` : ""}{item.backup ? ` · Backup: ${item.backup}` : ""}</span></div>)}</>;
 }
 
 function Models({ report, plan, syncOutcome, syncing, loading, remoteTarget, query, setQuery, onToggle, onSync, busy }: { report?: ModelReport; plan?: PlatformSyncReport; syncOutcome?: SyncOutcome; syncing: boolean; loading: boolean; remoteTarget: string; query: string; setQuery: (value: string) => void; onToggle: (model: Model) => void; onSync: () => void; busy: boolean }) {

@@ -48,4 +48,15 @@ func TestRemoteSyncReportDistinguishesAppliedFromUnchangedPartial(t *testing.T) 
 	if complete.Action != "needs_attention" || !strings.Contains(complete.Detail, "needs attention") {
 		t.Fatalf("unready remote reported as synchronized: %+v", complete)
 	}
+	withUnlisted := RemoteSyncReport{
+		Action:      "applied",
+		RemoteReady: true,
+		Platforms: PlatformSyncReport{Items: []PlatformSyncItem{
+			{ID: "xbot", Action: "noop", Unlisted: []string{"xbot-only"}},
+		}},
+	}
+	finishRemoteSyncReport(&withUnlisted)
+	if withUnlisted.Action != "needs_attention" || !strings.Contains(withUnlisted.Detail, "outside the source catalog") {
+		t.Fatalf("remote unlisted model reported fully synchronized: %+v", withUnlisted)
+	}
 }

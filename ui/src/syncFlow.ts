@@ -29,7 +29,9 @@ export async function syncTargets(
 
 export function platformSyncSummary(report: PlatformSyncReport): string {
   const skipped = report.items.filter((item) => (item.result ?? item.action) === "skipped").length;
-  return `${report.changed} updated, ${skipped} skipped, ${report.failed} blocked or failed`;
+  const unlisted = report.items.reduce((count, item) => count + (item.unlisted?.length ?? 0), 0);
+  const summary = `${report.changed} updated, ${skipped} skipped, ${report.failed} blocked or failed`;
+  return unlisted ? `${summary}, ${unlisted} out-of-catalog ${unlisted === 1 ? "model" : "models"} preserved (review needed)` : summary;
 }
 
 export function syncSummary(outcome: SyncOutcome, catalogSaved: boolean): string {

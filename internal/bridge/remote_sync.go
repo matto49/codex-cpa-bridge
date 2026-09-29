@@ -15,6 +15,7 @@ type RemoteSyncReport struct {
 	Action         string                `json:"action"`
 	ModelPolicy    ModelPolicyReport     `json:"model_policy"`
 	CatalogRefresh *CatalogRefreshReport `json:"catalog_refresh,omitempty"`
+	PlatformScan   *PlatformsReport      `json:"platform_scan,omitempty"`
 	Platforms      PlatformSyncReport    `json:"platforms"`
 	RemoteReady    bool                  `json:"remote_ready"`
 	Detail         string                `json:"detail"`
@@ -60,6 +61,16 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 		if err := json.Unmarshal(output, &report.Platforms); err != nil {
 			return report, errors.New("remote platform plan returned invalid JSON")
 		}
+		scanCommand := `"$HOME/.local/bin/bridge-go" --manifest "$HOME/.config/codex-cpa-bridge/bridge.toml" platforms scan --json`
+		scanOutput, err := remoteCommand(ctx, target, scanCommand, nil)
+		if err != nil {
+			return report, fmt.Errorf("remote platform scan failed: %w", err)
+		}
+		var scan PlatformsReport
+		if err := json.Unmarshal(scanOutput, &scan); err != nil || len(scan.Platforms) == 0 {
+			return report, errors.New("remote platform scan returned invalid JSON")
+		}
+		report.PlatformScan = &scan
 		report.Detail = remotePreviewDetail(report.ModelPolicy, report.CatalogRefresh)
 		return report, nil
 	}

@@ -115,8 +115,25 @@ export type RemoteSyncReport = {
   action: string;
   model_policy: { changes: { slug: string; from: string; to: string }[]; missing?: string[]; extra_visible?: string[]; extra_visible_checked?: boolean; applied: boolean; backup?: string };
   catalog_refresh?: { added: string[]; backup?: string; written: boolean };
+  platform_scan?: PlatformsReport;
   platforms: PlatformSyncReport;
   remote_ready: boolean;
+  detail: string;
+};
+
+export type RemoteClaudeReport = {
+  target: string;
+  mode: "init" | "adopt";
+  path: string;
+  base_url: string;
+  visible_models: number;
+  selected_model: string;
+  auth_source: string;
+  auth_ready: boolean;
+  helper_configured?: boolean;
+  removed_env_keys?: string[];
+  backup?: string;
+  action: "preview" | "created" | "adopted" | "unchanged";
   detail: string;
 };
 
@@ -219,6 +236,11 @@ export async function previewRemoteSync(manifest: string, target: string): Promi
 export async function syncRemote(manifest: string, target: string): Promise<RemoteSyncReport> {
   if (!inTauri()) throw new Error("Remote sync requires the desktop app");
   return invoke("bridge_remote_sync", { manifest, target });
+}
+
+export async function remoteClaude(manifest: string, target: string, mode: "init" | "adopt", write: boolean, confirmProtocol: boolean, confirmSecond: boolean): Promise<RemoteClaudeReport> {
+  if (!inTauri()) throw new Error("Remote Claude configuration requires the desktop app");
+  return invoke("bridge_remote_claude", { manifest, target, mode, write, confirmProtocol, confirmSecond });
 }
 
 export async function setModelVisibility(manifest: string, slug: string, visibility: "list" | "hide") {

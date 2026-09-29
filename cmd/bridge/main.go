@@ -456,8 +456,36 @@ func run(argv []string) int {
 		return 0
 
 	case "remote":
+		if len(args) > 0 && args[0] == "claude" {
+			fs := flag.NewFlagSet("remote claude", flag.ContinueOnError)
+			fs.SetOutput(os.Stderr)
+			target := fs.String("target", "", "SSH host alias or user@host")
+			mode := fs.String("mode", "", "init missing settings or adopt an existing provider")
+			write := fs.Bool("write", false, "create or back up and switch remote Claude settings")
+			confirmProtocol := fs.Bool("confirm-anthropic-compatible", false, "confirm the remote CPA supports Claude's Anthropic API")
+			confirmAuth := fs.Bool("confirm-external-auth", false, "confirm external Claude credentials for init")
+			confirmReplace := fs.Bool("confirm-replace-provider", false, "confirm replacement of the existing Claude provider for adopt")
+			jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+			if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+				return 2
+			}
+			secondConfirmation := *confirmAuth
+			if *mode == "adopt" {
+				secondConfirmation = *confirmReplace
+			}
+			report, err := bridge.RemoteClaudeSettings(*target, *mode, *write, *confirmProtocol, secondConfirmation)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bridge remote claude: %v\n", err)
+				return 1
+			}
+			if *jsonOut {
+				return printJSON(report)
+			}
+			fmt.Printf("%s Claude settings on %s: %s\n", report.Action, report.Target, report.Detail)
+			return 0
+		}
 		if len(args) == 0 || (args[0] != "scan" && args[0] != "install" && args[0] != "sync") {
-			fmt.Fprintln(os.Stderr, "bridge remote: expected scan, install or sync")
+			fmt.Fprintln(os.Stderr, "bridge remote: expected scan, install, sync or claude")
 			return 2
 		}
 		fs := flag.NewFlagSet("remote "+args[0], flag.ContinueOnError)

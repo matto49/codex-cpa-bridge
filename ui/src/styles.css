@@ -8,7 +8,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 780px; min-height: 100vh; background: #f4f5f3; }
-button, input { font: inherit; letter-spacing: 0; }
+button, input, select { font: inherit; letter-spacing: 0; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .48; }
 
@@ -90,7 +90,7 @@ dd { min-width: 0; margin: 0; overflow: hidden; color: #424946; font-family: ui-
 .platform-state.skipped { background: #edf0ee; color: #5d6861; }
 .platform-state.blocked { background: #fff0e9; color: #9b4e2f; }
 .platform-state.failed { background: #fff0e9; color: #9b4e2f; }
-.model-toolbar input, .settings-section input { height: 36px; border: 1px solid #d5dad6; border-radius: 6px; outline: 0; background: #fff; color: #2e3432; font-size: 12px; }
+.model-toolbar input, .settings-section input, .settings-section select { height: 36px; border: 1px solid #d5dad6; border-radius: 6px; outline: 0; background: #fff; color: #2e3432; font-size: 12px; }
 .model-toolbar input { width: 240px; padding: 0 12px; }
 .model-toolbar input:focus, .settings-section input:focus { border-color: #859c90; box-shadow: 0 0 0 3px #e1e8e3; }
 .model-toolbar code { min-width: 0; overflow: hidden; color: #7e8582; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -115,7 +115,7 @@ dd { min-width: 0; margin: 0; overflow: hidden; color: #424946; font-family: ui-
 .settings-section { margin-bottom: 14px; padding: 20px; border: 1px solid #dce0dd; border-radius: 8px; background: #fff; }
 .settings-section h2 { margin-bottom: 16px; }
 .settings-section label span { display: block; margin-bottom: 7px; color: #757c79; font-size: 11px; }
-.settings-section input { width: 100%; padding: 0 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.settings-section input, .settings-section select { width: 100%; padding: 0 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .confirmations { display: grid; gap: 8px; margin-top: 12px; }
 .confirmations label { display: flex; align-items: flex-start; gap: 8px; font-size: 11px; line-height: 1.45; color: #4e5652; }
 .confirmations label span { display: inline; margin: 0; color: inherit; font-size: inherit; }

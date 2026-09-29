@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronRight, CircleAlert, Power, RefreshCw, Server, Settings2, SlidersHorizontal, TerminalSquare } from "lucide-react";
-import { CatalogBootstrapReport, ClaudeAdoptReport, ClaudeInitReport, Doctor, Model, ModelReport, PlatformSyncReport, PlatformsReport, RemoteReport, RemoteSyncReport, Status, adoptClaude, bootstrapCatalog, getDoctor, getModels, getPlatformPlan, getPlatforms, getStatus, initClaude, initManifest, previewRemoteSync, runAction, scanRemote, setModelVisibility, syncPlatforms, syncRemote } from "./api";
+import { CatalogBootstrapReport, ClaudeAdoptReport, ClaudeInitReport, Doctor, Model, ModelReport, PlatformSyncReport, PlatformsReport, RemoteClaudeReport, RemoteReport, RemoteSyncReport, Status, adoptClaude, bootstrapCatalog, getDoctor, getModels, getPlatformPlan, getPlatforms, getStatus, initClaude, initManifest, previewRemoteSync, remoteClaude, runAction, scanRemote, setModelVisibility, syncPlatforms, syncRemote } from "./api";
 import { platformSyncSummary, syncSummary, syncTargets } from "./syncFlow";
 import type { SyncOutcome } from "./syncFlow";
 import bridgeIcon from "../src-tauri/icons/bridge.svg";
@@ -216,7 +216,53 @@ function ClaudeAdoptSection({ manifest, status, onCreated, onNotice, onBeginWork
   </section>;
 }
 
-function Settings({ manifest, manifestDraft, setManifestDraft, onLoadManifest, status, catalogReady, catalogPreview, platforms, remoteTarget, setRemoteTarget, remoteStatus, remotePlan, remoteResult, onRemoteCheck, onRemoteSync, onCatalogPreview, onCatalogCreate, onClaudeCreated, onNotice, onBeginWork, onEndWork, onAction, onInit, busy }: { manifest: string; manifestDraft: string; setManifestDraft: (value: string) => void; onLoadManifest: () => void; status?: Status; catalogReady: boolean; catalogPreview?: CatalogBootstrapReport; platforms?: PlatformsReport; remoteTarget: string; setRemoteTarget: (value: string) => void; remoteStatus?: RemoteReport; remotePlan?: RemoteSyncReport; remoteResult?: RemoteSyncReport; onRemoteCheck: () => void; onRemoteSync: () => void; onCatalogPreview: () => void; onCatalogCreate: () => void; onClaudeCreated: () => Promise<void>; onNotice: (message: string) => void; onBeginWork: () => void; onEndWork: () => void; onAction: (action: "setup" | "up" | "down") => void; onInit: () => void; busy: boolean }) {
+function RemoteClaudeSection({ manifest, target, detected, extraVisible, onChanged, onNotice, onBeginWork, onEndWork, busy }: { manifest: string; target: string; detected?: PlatformsReport["platforms"][number]; extraVisible: number; onChanged: () => Promise<boolean>; onNotice: (message: string) => void; onBeginWork: () => void; onEndWork: () => void; busy: boolean }) {
+  const [mode, setMode] = useState<"adopt" | "init">(detected?.state === "missing" ? "init" : "adopt");
+  const [preview, setPreview] = useState<RemoteClaudeReport>();
+  const [result, setResult] = useState<RemoteClaudeReport>();
+  const [confirmProtocol, setConfirmProtocol] = useState(false);
+  const [confirmSecond, setConfirmSecond] = useState(false);
+  const [working, setWorking] = useState(false);
+  useEffect(() => { setPreview(undefined); setResult(undefined); setConfirmProtocol(false); setConfirmSecond(false); }, [manifest, target, mode]);
+
+  async function previewRemoteClaude() {
+    setWorking(true);
+    onBeginWork();
+    try { setPreview(await remoteClaude(manifest, target, mode, false, false, false)); }
+    catch (error) { setPreview(undefined); onNotice(String(error)); }
+    finally { setWorking(false); onEndWork(); }
+  }
+
+  async function applyRemoteClaude() {
+    setWorking(true);
+    onBeginWork();
+    try {
+      const applied = await remoteClaude(manifest, target, mode, true, confirmProtocol, confirmSecond);
+      setResult(applied);
+      setPreview(undefined);
+      const refreshed = await onChanged();
+      onNotice(`${applied.action} remote Claude settings${applied.backup ? ` · Backup: ${applied.backup}` : ""}. ${refreshed ? "Reconnect Claude Code; runtime authentication still needs verification." : "Remote status refresh failed; check it again before syncing."}`);
+    } catch (error) { onNotice(String(error)); }
+    finally { setWorking(false); onEndWork(); }
+  }
+
+  return <div className="remote-summary">
+    <strong>Remote Claude Code configuration</strong>
+    {detected && <p>Detected: {detected.state} · {detected.path}. {detected.detail}</p>}
+    <p>Use the remote host's own CPA endpoint and credential source. Preview is read-only; applying a provider switch backs up its existing settings.</p>
+    {extraVisible > 0 && <p>{extraVisible} remote-only visible models are currently preserved; Claude may list them until you choose a remote visibility policy.</p>}
+    <label><span>Action</span><select value={mode} onChange={(event) => setMode(event.target.value as "adopt" | "init")} disabled={busy || working}><option value="adopt">Switch existing provider</option><option value="init">Create missing settings</option></select></label>
+    <div className="remote-actions"><button className="secondary" onClick={previewRemoteClaude} disabled={busy || working}>Preview remote Claude</button><button className="primary" onClick={applyRemoteClaude} disabled={busy || working || !preview || !confirmProtocol || !confirmSecond || mode === "adopt" && !preview.auth_ready}>{mode === "adopt" ? "Back up & switch remote Claude" : "Create remote Claude settings"}</button></div>
+    {preview && <><p>{preview.path} · {preview.visible_models} visible models · default {preview.selected_model}</p><p>CPA URL: {preview.base_url} · credential {preview.auth_ready ? "available" : "not detected"}</p><p>{preview.detail}</p></>}
+    {preview && <div className="confirmations">
+      <label><input type="checkbox" checked={confirmProtocol} onChange={(event) => setConfirmProtocol(event.target.checked)} /><span>I confirmed the remote CPA supports Claude's Anthropic API.</span></label>
+      <label><input type="checkbox" checked={confirmSecond} onChange={(event) => setConfirmSecond(event.target.checked)} /><span>{mode === "adopt" ? "Replace the remote Claude provider after a private backup." : "Remote Claude has an external credential source."}</span></label>
+    </div>}
+    {result && <p>Last action: {result.action}. {result.detail}{result.backup ? ` Backup: ${result.backup}` : ""}</p>}
+  </div>;
+}
+
+function Settings({ manifest, manifestDraft, setManifestDraft, onLoadManifest, status, catalogReady, catalogPreview, platforms, remoteTarget, setRemoteTarget, remoteStatus, remotePlan, remoteResult, onRemoteCheck, onRemoteSync, onCatalogPreview, onCatalogCreate, onClaudeCreated, onNotice, onBeginWork, onEndWork, onAction, onInit, busy }: { manifest: string; manifestDraft: string; setManifestDraft: (value: string) => void; onLoadManifest: () => void; status?: Status; catalogReady: boolean; catalogPreview?: CatalogBootstrapReport; platforms?: PlatformsReport; remoteTarget: string; setRemoteTarget: (value: string) => void; remoteStatus?: RemoteReport; remotePlan?: RemoteSyncReport; remoteResult?: RemoteSyncReport; onRemoteCheck: () => Promise<boolean>; onRemoteSync: () => void; onCatalogPreview: () => void; onCatalogCreate: () => void; onClaudeCreated: () => Promise<void>; onNotice: (message: string) => void; onBeginWork: () => void; onEndWork: () => void; onAction: (action: "setup" | "up" | "down") => void; onInit: () => void; busy: boolean }) {
   const claudeMissing = platforms?.platforms.some((platform) => platform.id === "claude" && platform.state === "missing");
   const claudeUnrelated = platforms?.platforms.some((platform) => platform.id === "claude" && platform.state === "unrelated");
   const missingRemoteModels = remotePlan?.model_policy.missing?.length ?? 0;
@@ -243,8 +289,9 @@ function Settings({ manifest, manifestDraft, setManifestDraft, onLoadManifest, s
         <label><span>SSH target</span><input value={remoteTarget} onChange={(event) => setRemoteTarget(event.target.value)} placeholder="devbox" disabled={busy} /></label>
         <div className="remote-actions"><button className="secondary" onClick={onRemoteCheck} disabled={busy || !remoteTarget.trim()}>Check &amp; preview</button><button className="primary" onClick={onRemoteSync} disabled={busy || !remoteStatus?.ready || !remotePlan}>Sync remote</button></div>
         {remoteStatus && <div className="remote-summary"><strong>{remoteStatus.ready ? "Remote ready" : "Remote needs attention"}</strong><span>{remoteStatus.resolved_user}@{remoteStatus.resolved_host}:{remoteStatus.resolved_port} · CPA {remoteStatus.cpa_http_status ?? "unknown"}</span><p>{remoteStatus.detail}</p></div>}
-        {remotePlan && <div className="remote-summary"><strong>Preview</strong><p>{remotePlan.model_policy.changes.length} visibility changes · {missingRemoteModels} {missingRemoteModels === 1 ? "model" : "models"} not yet in remote catalog · {remotePlan.model_policy.extra_visible_checked ? `${extraRemoteModels} remote-only visible ${extraRemoteModels === 1 ? "model" : "models"} preserved` : "remote-only visibility unverified"}</p><p>{remotePlan.detail}</p>{remotePlan.model_policy.changes.length > 0 && <small>Changes: {remotePlan.model_policy.changes.map((change) => `${change.slug}: ${change.from} → ${change.to}`).join(", ")}</small>}{missingRemoteModels > 0 && <small>Missing from catalog: {remotePlan.model_policy.missing?.join(", ")}</small>}{extraRemoteModels > 0 && <small>Remote-only visible models (not changed): {remotePlan.model_policy.extra_visible?.join(", ")}</small>}{remotePlan.platforms.items?.length > 0 && <><strong>Remote platform plan</strong><PlatformResultRows report={remotePlan.platforms} /></>}</div>}
+        {remotePlan && <div className="remote-summary"><strong>Preview</strong><p>{remotePlan.model_policy.changes.length} visibility changes · {missingRemoteModels} {missingRemoteModels === 1 ? "model" : "models"} not yet in remote catalog · {remotePlan.model_policy.extra_visible_checked ? `${extraRemoteModels} remote-only visible ${extraRemoteModels === 1 ? "model" : "models"} preserved` : "remote-only visibility unverified"}</p><p>{remotePlan.detail}</p>{remotePlan.model_policy.changes.length > 0 && <small>Changes: {remotePlan.model_policy.changes.map((change) => `${change.slug}: ${change.from} → ${change.to}`).join(", ")}</small>}{missingRemoteModels > 0 && <small>Missing from catalog: {remotePlan.model_policy.missing?.join(", ")}</small>}{extraRemoteModels > 0 && <small>Remote-only visible models (not changed): {remotePlan.model_policy.extra_visible?.join(", ")}</small>}{remotePlan.platform_scan && <><strong>Detected remote platforms</strong><div className="platform-list">{remotePlan.platform_scan.platforms.map((platform) => <div className="platform-item" key={platform.id}><div className="platform-title"><strong>{platform.name}</strong><span className={`platform-state ${platform.state}`}>{platform.state.replaceAll("_", " ")}</span></div><code title={platform.path}>{platform.path}</code><p>{platform.detail}</p></div>)}</div></>}{remotePlan.platforms.items?.length > 0 && <><strong>Remote platform plan</strong><PlatformResultRows report={remotePlan.platforms} /></>}</div>}
         {remoteResult && <div className="remote-summary"><strong>Last sync: {remoteResult.action}</strong><p>{remoteResult.detail}</p>{!!remoteResult.model_policy.extra_visible?.length && <small>Remote-only visible models preserved: {remoteResult.model_policy.extra_visible.join(", ")}</small>}<p>Remote platforms: {platformSyncSummary(remoteResult.platforms)}.</p><PlatformResultRows report={remoteResult.platforms} />{remoteResult.model_policy.backup && <small>Catalog backup: {remoteResult.model_policy.backup}</small>}{remoteResult.catalog_refresh?.backup && <small>Refresh backup: {remoteResult.catalog_refresh.backup}</small>}</div>}
+        {remoteStatus?.ready && remotePlan?.platform_scan && <RemoteClaudeSection manifest={manifest} target={remoteTarget.trim()} detected={remotePlan.platform_scan.platforms.find((platform) => platform.id === "claude")} extraVisible={extraRemoteModels} onChanged={onRemoteCheck} onNotice={onNotice} onBeginWork={onBeginWork} onEndWork={onEndWork} busy={busy} />}
       </section>
       <section className="settings-section action-section"><div><h2>Local SSH service</h2><p>{status?.ssh_port_open ? "Running" : "Stopped"}</p></div><div><button className="secondary" onClick={() => onAction("down")} disabled={busy || !status?.ssh_port_open || status?.ssh_management === "external"}>Stop</button><button className="primary" onClick={() => onAction("setup")} disabled={busy}>Run setup</button></div></section>
     </div>
@@ -389,17 +436,17 @@ export default function App() {
     setSyncOutcome(undefined);
   }
 
-  async function checkRemote() {
+  async function checkRemote(): Promise<boolean> {
     beginWork();
-    setRemotePlan(undefined);
     try {
       const target = remoteTarget.trim();
       const status = await scanRemote(manifest, target);
       setRemoteStatus(status);
       localStorage.setItem("bridge-remote-target", target);
-      if (status.ready) setRemotePlan(await previewRemoteSync(manifest, target));
+      setRemotePlan(status.ready ? await previewRemoteSync(manifest, target) : undefined);
       setNotice(status.detail);
-    } catch (error) { setNotice(String(error)); }
+      return true;
+    } catch (error) { setRemotePlan(undefined); setNotice(String(error)); return false; }
     finally { endWork(); }
   }
 

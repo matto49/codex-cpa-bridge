@@ -72,15 +72,102 @@ func TestSameEndpointNormalizesV1Only(t *testing.T) {
 }
 
 func TestScanClaudeDescribesPickerBoundary(t *testing.T) {
-	m := testManifest(t)
-	m.Platforms.ClaudeSettingsJSON = filepath.Join(t.TempDir(), "settings.json")
-	settings := `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8317"},"availableModels":["claude-sonnet-4-6"],"enforceAvailableModels":true}`
-	if err := os.WriteFile(m.Platforms.ClaudeSettingsJSON, []byte(settings), 0o600); err != nil {
+	m := claudeInitFixture(t)
+	if _, err := InitClaudeSettings(m, m.Profiles.CPA.Endpoint, true, true, true); err != nil {
 		t.Fatal(err)
 	}
 	report := scanClaude(m)
 	if report.State != "ready" || !strings.Contains(report.Detail, "picker allowlist") || !strings.Contains(report.Detail, "--model") {
 		t.Fatalf("Claude scan should not imply hard model access control: %+v", report)
+	}
+}
+
+func TestScanClaudeMatchesSyncPlanForModelDrift(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(map[string]any)
+	}{
+		{"allowlist", func(settings map[string]any) { settings["availableModels"] = []string{"hidden"} }},
+		{"picker", func(settings map[string]any) {
+			settings["modelPicker"] = map[string]any{"options": []any{}, "replaceBuiltInOptions": false}
+		}},
+		{"default", func(settings map[string]any) { settings["model"] = "hidden" }},
+		{"environment pin", func(settings map[string]any) { settings["env"].(map[string]any)["ANTHROPIC_MODEL"] = "hidden" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := claudeInitFixture(t)
+			if _, err := InitClaudeSettings(m, m.Profiles.CPA.Endpoint, true, true, true); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var settings map[string]any
+			if err := json.Unmarshal(raw, &settings); err != nil {
+				t.Fatal(err)
+			}
+			tt.change(settings)
+			raw, err = json.Marshal(settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(m.Platforms.ClaudeSettingsJSON, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if scan := scanClaude(m); scan.State != "drift" || !scan.CPAEndpoint {
+				t.Fatalf("Claude drift not detected: %+v", scan)
+			}
+			plan, err := PlanPlatformSync(m)
+			if err != nil || syncItem(plan, "claude").Action != "update" {
+				t.Fatalf("scan and plan disagree: %+v, %v", plan, err)
+			}
+			if result, err := SyncPlatformConfigs(m); err != nil || syncItem(result, "claude").Result != "updated" {
+				t.Fatalf("sync failed to repair drift: %+v, %v", result, err)
+			}
+			if scan := scanClaude(m); scan.State != "ready" {
+				t.Fatalf("repaired Claude settings are not ready: %+v", scan)
+			}
+		})
+	}
+}
+
+func TestScanClaudeDoesNotReportReadyWithoutValidCatalog(t *testing.T) {
+	m := claudeInitFixture(t)
+	if _, err := InitClaudeSettings(m, m.Profiles.CPA.Endpoint, true, true, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.Profiles.CPA.ModelCatalogJSON, []byte(`{"models":"invalid"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if scan := scanClaude(m); scan.State != "needs_setup" {
+		t.Fatalf("invalid source catalog reported ready: %+v", scan)
+	}
+}
+
+func TestScanClaudeDetectsCatalogVisibilityChange(t *testing.T) {
+	m := claudeInitFixture(t)
+	if _, err := SetModelVisibility(m, "hidden", "list"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InitClaudeSettings(m, m.Profiles.CPA.Endpoint, true, true, true); err != nil {
+		t.Fatal(err)
+	}
+	if scan := scanClaude(m); scan.State != "ready" {
+		t.Fatalf("initialized Claude settings are not ready: %+v", scan)
+	}
+	if _, err := SetModelVisibility(m, "hidden", "hide"); err != nil {
+		t.Fatal(err)
+	}
+	if scan := scanClaude(m); scan.State != "drift" {
+		t.Fatalf("model visibility change was not detected: %+v", scan)
+	}
+	if result, err := SyncPlatformConfigs(m); err != nil || syncItem(result, "claude").Result != "updated" {
+		t.Fatalf("visibility change was not synchronized: %+v, %v", result, err)
+	}
+	if scan := scanClaude(m); scan.State != "ready" {
+		t.Fatalf("synchronized Claude settings are not ready: %+v", scan)
 	}
 }
 

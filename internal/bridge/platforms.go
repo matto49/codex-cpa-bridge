@@ -120,6 +120,27 @@ func scanClaude(m Manifest) PlatformReport {
 		r.State, r.Detail = "needs_setup", "Claude picker allowlist is not enabled"
 		return r
 	}
+	catalog, err := LoadModelCatalog(m)
+	if err != nil {
+		r.State, r.Detail = "needs_setup", "CPA model catalog cannot be read; repair it before checking Claude visibility"
+		return r
+	}
+	plan, _ := planClaudeSettings(path, m.Profiles.CPA.Endpoint, catalog.Models)
+	switch plan.Action {
+	case "noop":
+		// The plan checks the allowlist, picker, default model, and environment
+		// model pins against the same catalog used by platform sync.
+	case "update":
+		r.State, r.Detail = "drift", "Claude model settings differ from the CPA catalog; sync can repair the picker, allowlist, or hidden model pins"
+		return r
+	case "skipped":
+		r.State, r.Detail = "unrelated", plan.Detail
+		r.CPAEndpoint = false
+		return r
+	default:
+		r.State, r.Detail = "needs_setup", plan.Detail
+		return r
+	}
 	r.State, r.Detail = "ready", fmt.Sprintf("%d model IDs in Claude picker allowlist; explicit --model can still request others; runtime authentication and protocol not verified", len(settings.AvailableModels))
 	return r
 }

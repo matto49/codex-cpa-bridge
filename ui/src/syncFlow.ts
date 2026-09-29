@@ -27,11 +27,16 @@ export async function syncTargets(
   return outcome;
 }
 
+export function platformSyncSummary(report: PlatformSyncReport): string {
+  const skipped = report.items.filter((item) => (item.result ?? item.action) === "skipped").length;
+  return `${report.changed} updated, ${skipped} skipped, ${report.failed} blocked or failed`;
+}
+
 export function syncSummary(outcome: SyncOutcome, catalogSaved: boolean): string {
   const parts = catalogSaved ? ["Catalog visibility saved."] : [];
-  if (outcome.local) parts.push(`Local: ${outcome.local.changed} updated, ${outcome.local.failed} blocked or failed.`);
+  if (outcome.local) parts.push(`Local: ${platformSyncSummary(outcome.local)}.`);
   else if (outcome.localError) parts.push("Local sync failed; review and retry it.");
-  if (outcome.remote) parts.push(`Remote: ${outcome.remote.detail}`);
+  if (outcome.remote) parts.push(`Remote (${outcome.remote.target}): ${outcome.remote.detail} Platform results: ${platformSyncSummary(outcome.remote.platforms)}.`);
   else if (outcome.remoteError) parts.push("Remote sync failed; review and retry it.");
   return parts.join(" ");
 }

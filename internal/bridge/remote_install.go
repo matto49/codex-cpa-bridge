@@ -51,6 +51,9 @@ func InstallRemote(target, binary string, options RemoteInstallOptions) (RemoteI
 		return RemoteInstallReport{}, errors.New("authenticated remote scan must pass before installation")
 	}
 	report := RemoteInstallReport{Target: target, ManifestPath: filepath.Join(prior.RemoteHome, ".config/codex-cpa-bridge/bridge.toml")}
+	if options.Setup && prior.ResolvedUser == "root" {
+		return report, errors.New("remote --setup requires a non-root SSH user: bridge-managed SSH disables root login; omit --setup only when SSH is managed externally")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	remoteOS, err := remoteShell(ctx, target, "uname -sm")

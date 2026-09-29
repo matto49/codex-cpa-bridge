@@ -350,6 +350,28 @@ func run(argv []string) int {
 		}
 
 	case "platforms":
+		if len(args) > 0 && args[0] == "adopt-claude" {
+			fs := flag.NewFlagSet("platforms adopt-claude", flag.ContinueOnError)
+			fs.SetOutput(os.Stderr)
+			baseURL := fs.String("base-url", "", "Anthropic-compatible URL on the configured CPA endpoint")
+			confirmProtocol := fs.Bool("confirm-anthropic-compatible", false, "confirm this endpoint supports Claude's Anthropic API")
+			confirmReplace := fs.Bool("confirm-replace-provider", false, "confirm replacement of the existing Claude provider")
+			write := fs.Bool("write", false, "back up and switch existing Claude settings.json to CPA")
+			jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+			if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+				return 2
+			}
+			report, err := bridge.AdoptClaudeSettings(m, *baseURL, *confirmProtocol, *confirmReplace, *write)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bridge platforms adopt-claude: %v\n", err)
+				return 1
+			}
+			if *jsonOut {
+				return printJSON(report)
+			}
+			fmt.Printf("%s Claude settings %s with %d visible models — %s\n", report.Action, report.Path, report.VisibleModels, report.Detail)
+			return 0
+		}
 		if len(args) > 0 && args[0] == "init-claude" {
 			fs := flag.NewFlagSet("platforms init-claude", flag.ContinueOnError)
 			fs.SetOutput(os.Stderr)
@@ -373,7 +395,7 @@ func run(argv []string) int {
 			return 0
 		}
 		if len(args) == 0 || (args[0] != "scan" && args[0] != "plan" && args[0] != "sync") {
-			fmt.Fprintln(os.Stderr, "bridge platforms: expected scan, plan, sync or init-claude")
+			fmt.Fprintln(os.Stderr, "bridge platforms: expected scan, plan, sync, init-claude or adopt-claude")
 			return 2
 		}
 		fs := flag.NewFlagSet("platforms "+args[0], flag.ContinueOnError)

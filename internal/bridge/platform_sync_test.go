@@ -124,13 +124,14 @@ func TestPlatformSyncPreviewBackupAndIdempotence(t *testing.T) {
 		Env                    map[string]string `json:"env"`
 		AvailableModels        []string          `json:"availableModels"`
 		EnforceAvailableModels bool              `json:"enforceAvailableModels"`
+		ModelPicker            claudeModelPicker `json:"modelPicker"`
 		Hooks                  map[string]int    `json:"hooks"`
 	}
 	updated, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
 	if err != nil || json.Unmarshal(updated, &settings) != nil {
 		t.Fatalf("invalid updated settings: %v", err)
 	}
-	if settings.Env["ANTHROPIC_AUTH_TOKEN"] != "secret-test" || !settings.EnforceAvailableModels || !reflect.DeepEqual(settings.AvailableModels, []string{"gpt-6-sol"}) || settings.Hooks["a"] != 1 {
+	if settings.Env["ANTHROPIC_AUTH_TOKEN"] != "secret-test" || !settings.EnforceAvailableModels || !reflect.DeepEqual(settings.AvailableModels, []string{"gpt-6-sol"}) || !settings.ModelPicker.ReplaceBuiltInOptions || !reflect.DeepEqual(settings.ModelPicker.Options, []claudePickerOption{{Model: "gpt-6-sol", Label: "gpt-6-sol"}}) || settings.Hooks["a"] != 1 {
 		t.Fatalf("settings not preserved: %+v", settings)
 	}
 	second, err := SyncPlatformConfigs(m)
@@ -156,6 +157,49 @@ func TestPlatformSyncPreservesUnrelatedClaude(t *testing.T) {
 	after, _ := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
 	if string(after) != string(before) {
 		t.Fatal("unrelated Claude settings changed")
+	}
+}
+
+func TestPlatformSyncMovesHiddenClaudeDefaultAndClearsHiddenPins(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317")
+	settings := `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8317","ANTHROPIC_AUTH_TOKEN":"secret-test","ANTHROPIC_MODEL":"gpt-5.5","ANTHROPIC_DEFAULT_OPUS_MODEL":"gpt-6-sol","CLAUDE_CODE_SUBAGENT_MODEL":"gpt-5.5","KEEP_ME":"yes"},"model":"gpt-5.5","availableModels":["gpt-6-sol"],"enforceAvailableModels":true,"hooks":{"a":1}}`
+	if err := os.WriteFile(m.Platforms.ClaudeSettingsJSON, []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanPlatformSync(m)
+	if err != nil || syncItem(plan, "claude").Action != "update" {
+		t.Fatalf("hidden Claude pins were not planned for repair: %+v, %v", plan, err)
+	}
+	result, err := SyncPlatformConfigs(m)
+	if err != nil || syncItem(result, "claude").Result != "updated" || syncItem(result, "claude").Backup == "" {
+		t.Fatalf("hidden Claude pins were not repaired: %+v, %v", result, err)
+	}
+	var updated struct {
+		Model string            `json:"model"`
+		Env   map[string]string `json:"env"`
+		Hooks map[string]int    `json:"hooks"`
+	}
+	raw, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	if err != nil || json.Unmarshal(raw, &updated) != nil {
+		t.Fatalf("cannot read updated Claude settings: %v", err)
+	}
+	if updated.Model != "gpt-6-sol" || updated.Env["ANTHROPIC_MODEL"] != "" || updated.Env["CLAUDE_CODE_SUBAGENT_MODEL"] != "" || updated.Env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "gpt-6-sol" || updated.Env["ANTHROPIC_AUTH_TOKEN"] != "secret-test" || updated.Env["KEEP_ME"] != "yes" || updated.Hooks["a"] != 1 {
+		t.Fatalf("hidden pins remain or unrelated settings changed: %+v", updated)
+	}
+	second, err := PlanPlatformSync(m)
+	if err != nil || syncItem(second, "claude").Action != "noop" {
+		t.Fatalf("pin repair is not idempotent: %+v, %v", second, err)
+	}
+}
+
+func TestPlatformSyncBlocksClaudeWhenNoModelsVisible(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317")
+	if err := os.WriteFile(m.Profiles.CPA.ModelCatalogJSON, []byte(`{"models":[{"slug":"gpt-6-sol","visibility":"hide"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanPlatformSync(m)
+	if err != nil || syncItem(plan, "claude").Action != "blocked" || !strings.Contains(syncItem(plan, "claude").Detail, "at least one visible") {
+		t.Fatalf("all-hidden catalog was not handled safely: %+v, %v", plan, err)
 	}
 }
 

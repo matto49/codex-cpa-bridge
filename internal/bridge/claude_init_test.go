@@ -13,7 +13,7 @@ func claudeInitFixture(t *testing.T) Manifest {
 	m := testManifest(t)
 	m.Platforms.ClaudeSettingsJSON = filepath.Join(t.TempDir(), ".claude", "settings.json")
 	m.Profiles.CPA.ModelCatalogJSON = filepath.Join(t.TempDir(), "models.json")
-	content := `{"models":[{"slug":"visible","visibility":"list","priority":1},{"slug":"hidden","visibility":"hide","priority":2}]}`
+	content := `{"models":[{"slug":"visible","display_name":"Visible CPA model","visibility":"list","priority":1},{"slug":"hidden","visibility":"hide","priority":2}]}`
 	if err := os.WriteFile(m.Profiles.CPA.ModelCatalogJSON, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -48,11 +48,12 @@ func TestClaudeInitPreviewCreateAndScan(t *testing.T) {
 		Env                    map[string]string `json:"env"`
 		AvailableModels        []string          `json:"availableModels"`
 		EnforceAvailableModels bool              `json:"enforceAvailableModels"`
+		ModelPicker            claudeModelPicker `json:"modelPicker"`
 	}
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		t.Fatal(err)
 	}
-	if settings.Env["ANTHROPIC_BASE_URL"] != preview.BaseURL || len(settings.Env) != 1 || len(settings.AvailableModels) != 1 || settings.AvailableModels[0] != "visible" || !settings.EnforceAvailableModels {
+	if settings.Env["ANTHROPIC_BASE_URL"] != preview.BaseURL || len(settings.Env) != 1 || len(settings.AvailableModels) != 1 || settings.AvailableModels[0] != "visible" || !settings.EnforceAvailableModels || !settings.ModelPicker.ReplaceBuiltInOptions || len(settings.ModelPicker.Options) != 1 || settings.ModelPicker.Options[0] != (claudePickerOption{Model: "visible", Label: "Visible CPA model"}) {
 		t.Fatalf("unexpected generated settings: %+v", settings)
 	}
 	if scan := scanClaude(m); scan.State != "ready" || !scan.CPAEndpoint {

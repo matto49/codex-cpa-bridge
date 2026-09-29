@@ -21,6 +21,33 @@ type ClaudeInitReport struct {
 	Detail            string `json:"detail"`
 }
 
+type claudePickerOption struct {
+	Model string `json:"model"`
+	Label string `json:"label,omitempty"`
+}
+
+type claudeModelPicker struct {
+	Options               []claudePickerOption `json:"options"`
+	ReplaceBuiltInOptions bool                 `json:"replaceBuiltInOptions"`
+}
+
+func claudeVisibleModels(models []ModelSummary) ([]string, claudeModelPicker) {
+	ids := make([]string, 0, len(models))
+	picker := claudeModelPicker{Options: make([]claudePickerOption, 0, len(models)), ReplaceBuiltInOptions: true}
+	for _, model := range models {
+		if model.Visibility != "list" || model.Slug == "" {
+			continue
+		}
+		ids = append(ids, model.Slug)
+		label := model.DisplayName
+		if label == "" {
+			label = model.Slug
+		}
+		picker.Options = append(picker.Options, claudePickerOption{Model: model.Slug, Label: label})
+	}
+	return ids, picker
+}
+
 // InitClaudeSettings only creates an absent file. An operator must separately
 // confirm Anthropic protocol support and provision Claude Code credentials;
 // neither can be inferred from CPA's OpenAI-compatible /models response.
@@ -29,18 +56,10 @@ func InitClaudeSettings(m Manifest, baseURL string, confirmProtocol, confirmAuth
 	if path == "" {
 		return ClaudeInitReport{}, errors.New("platforms.claude_settings_json is not configured")
 	}
-	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || !sameEndpoint(baseURL, m.Profiles.CPA.Endpoint) {
-		return ClaudeInitReport{}, errors.New("Claude base URL must be a credential-free URL on the configured CPA endpoint")
+	baseURL, err := validateClaudeBaseURL(m, baseURL)
+	if err != nil {
+		return ClaudeInitReport{}, err
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return ClaudeInitReport{}, errors.New("Claude base URL must use HTTP or HTTPS")
-	}
-	if parsed.Scheme == "http" && !claudeLoopbackHost(parsed.Hostname()) {
-		return ClaudeInitReport{}, errors.New("non-loopback Claude base URL must use HTTPS")
-	}
-	baseURL = normalizeClaudeBaseURL(baseURL)
 	if _, err := os.Lstat(path); err == nil {
 		return ClaudeInitReport{}, fmt.Errorf("Claude settings already exist at %s; refusing to replace them", path)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -50,12 +69,7 @@ func InitClaudeSettings(m Manifest, baseURL string, confirmProtocol, confirmAuth
 	if err != nil {
 		return ClaudeInitReport{}, err
 	}
-	visible := make([]string, 0, len(catalog.Models))
-	for _, model := range catalog.Models {
-		if model.Visibility == "list" && model.Slug != "" {
-			visible = append(visible, model.Slug)
-		}
-	}
+	visible, picker := claudeVisibleModels(catalog.Models)
 	if len(visible) == 0 {
 		return ClaudeInitReport{}, errors.New("the source catalog has no visible models")
 	}
@@ -79,6 +93,7 @@ func InitClaudeSettings(m Manifest, baseURL string, confirmProtocol, confirmAuth
 		"env":                    map[string]string{"ANTHROPIC_BASE_URL": baseURL},
 		"availableModels":        visible,
 		"enforceAvailableModels": true,
+		"modelPicker":            picker,
 	}
 	content, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
@@ -91,6 +106,21 @@ func InitClaudeSettings(m Manifest, baseURL string, confirmProtocol, confirmAuth
 	report.Action = "created"
 	report.Detail = "Claude settings created; reconnect Claude Code and verify authentication and model picker behavior"
 	return report, nil
+}
+
+func validateClaudeBaseURL(m Manifest, baseURL string) (string, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || !sameEndpoint(baseURL, m.Profiles.CPA.Endpoint) {
+		return "", errors.New("Claude base URL must be a credential-free URL on the configured CPA endpoint")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", errors.New("Claude base URL must use HTTP or HTTPS")
+	}
+	if parsed.Scheme == "http" && !claudeLoopbackHost(parsed.Hostname()) {
+		return "", errors.New("non-loopback Claude base URL must use HTTPS")
+	}
+	return normalizeClaudeBaseURL(baseURL), nil
 }
 
 // Claude Code appends /v1/messages to ANTHROPIC_BASE_URL. CPA's OpenAI-style

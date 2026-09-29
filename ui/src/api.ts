@@ -74,6 +74,19 @@ export type ClaudeInitReport = {
   detail: string;
 };
 
+export type ClaudeAdoptReport = {
+  path: string;
+  base_url: string;
+  visible_models: number;
+  selected_model: string;
+  auth_source: string;
+  auth_ready: boolean;
+  removed_env_keys: string[];
+  backup?: string;
+  action: "preview" | "adopted" | "unchanged";
+  detail: string;
+};
+
 export type InitReport = { manifest_path: string; profile_path: string; endpoint: string; catalog_path: string; action: string };
 
 export type RemoteReport = {
@@ -176,6 +189,11 @@ export async function syncPlatforms(manifest: string): Promise<PlatformSyncRepor
 export async function initClaude(manifest: string, baseUrl: string, confirmProtocol: boolean, confirmAuth: boolean, write: boolean): Promise<ClaudeInitReport> {
   if (!inTauri()) throw new Error("Claude initialization requires the desktop app");
   return invoke("bridge_claude_init", { manifest, baseUrl, confirmProtocol, confirmAuth, write });
+}
+
+export async function adoptClaude(manifest: string, baseUrl: string, confirmProtocol: boolean, confirmReplace: boolean, write: boolean): Promise<ClaudeAdoptReport> {
+  if (!inTauri()) throw new Error("Claude provider switch requires the desktop app");
+  return invoke("bridge_claude_adopt", { manifest, baseUrl, confirmProtocol, confirmReplace, write });
 }
 
 export async function initManifest(manifest: string): Promise<InitReport> {

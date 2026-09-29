@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronRight, CircleAlert, Power, RefreshCw, Server, Settings2, SlidersHorizontal, TerminalSquare } from "lucide-react";
-import { CatalogBootstrapReport, ClaudeInitReport, Doctor, Model, ModelReport, PlatformSyncReport, PlatformsReport, RemoteReport, RemoteSyncReport, Status, bootstrapCatalog, getDoctor, getModels, getPlatformPlan, getPlatforms, getStatus, initClaude, initManifest, previewRemoteSync, runAction, scanRemote, setModelVisibility, syncPlatforms, syncRemote } from "./api";
-import { syncSummary, syncTargets } from "./syncFlow";
+import { CatalogBootstrapReport, ClaudeAdoptReport, ClaudeInitReport, Doctor, Model, ModelReport, PlatformSyncReport, PlatformsReport, RemoteReport, RemoteSyncReport, Status, adoptClaude, bootstrapCatalog, getDoctor, getModels, getPlatformPlan, getPlatforms, getStatus, initClaude, initManifest, previewRemoteSync, runAction, scanRemote, setModelVisibility, syncPlatforms, syncRemote } from "./api";
+import { platformSyncSummary, syncSummary, syncTargets } from "./syncFlow";
 import type { SyncOutcome } from "./syncFlow";
 import bridgeIcon from "../src-tauri/icons/bridge.svg";
 
@@ -85,6 +85,10 @@ function Overview({ status, doctor, busy, onRefresh, onAction }: { status?: Stat
   );
 }
 
+function PlatformResultRows({ report }: { report: PlatformSyncReport }) {
+  return <>{report.items.map((item) => <div className="sync-row" key={item.id}><strong>{item.id}</strong><span className={`platform-state ${item.result ?? item.action}`}>{item.result ?? item.action}</span><span>{item.detail}{item.backup ? ` · Backup: ${item.backup}` : ""}</span></div>)}</>;
+}
+
 function Models({ report, plan, syncOutcome, syncing, loading, remoteTarget, query, setQuery, onToggle, onSync, busy }: { report?: ModelReport; plan?: PlatformSyncReport; syncOutcome?: SyncOutcome; syncing: boolean; loading: boolean; remoteTarget: string; query: string; setQuery: (value: string) => void; onToggle: (model: Model) => void; onSync: () => void; busy: boolean }) {
   const filtered = useMemo(() => report?.models.filter((model) => `${model.display_name} ${model.slug}`.toLowerCase().includes(query.toLowerCase())) ?? [], [report, query]);
   const visible = report?.models.filter((model) => model.visibility === "list").length ?? 0;
@@ -98,12 +102,16 @@ function Models({ report, plan, syncOutcome, syncing, loading, remoteTarget, que
           <strong>{syncing ? "Sync in progress" : "Last sync results"}</strong>
           {syncing && !syncOutcome?.local && !syncOutcome?.localError && <p className="sync-pending">Local: waiting for result…</p>}
           {syncOutcome?.local && <>
-            <p>Local: {syncOutcome.local.changed} updated, {syncOutcome.local.failed} blocked or failed.</p>
-            {syncOutcome.local.items.map((item) => <div className="sync-row" key={item.id}><strong>{item.id}</strong><span className={`platform-state ${item.result ?? item.action}`}>{item.result ?? item.action}</span><span>{item.detail}{item.backup ? ` · Backup: ${item.backup}` : ""}</span></div>)}
+            <p>Local: {platformSyncSummary(syncOutcome.local)}.</p>
+            <PlatformResultRows report={syncOutcome.local} />
           </>}
           {syncOutcome?.localError && <p className="sync-error">Local sync failed: {syncOutcome.localError}. Retry the local target.</p>}
           {syncing && remoteTarget && !syncOutcome?.remote && !syncOutcome?.remoteError && <p className="sync-pending">Remote {remoteTarget}: waiting for result…</p>}
-          {syncOutcome?.remote && <p>Remote {syncOutcome.remote.target}: {syncOutcome.remote.action} · {syncOutcome.remote.detail}{syncOutcome.remote.model_policy.missing?.length ? ` Unavailable: ${syncOutcome.remote.model_policy.missing.join(", ")}.` : ""}</p>}
+          {syncOutcome?.remote && <>
+            <p>Remote {syncOutcome.remote.target}: {syncOutcome.remote.action} · {syncOutcome.remote.detail}{syncOutcome.remote.model_policy.missing?.length ? ` Unavailable: ${syncOutcome.remote.model_policy.missing.join(", ")}.` : ""}</p>
+            <p>Remote platforms: {platformSyncSummary(syncOutcome.remote.platforms)}.</p>
+            <PlatformResultRows report={syncOutcome.remote.platforms} />
+          </>}
           {syncOutcome?.remoteError && <p className="sync-error">Remote sync failed: {syncOutcome.remoteError}. Retry the remote target.</p>}
         </div>}
       </section>
@@ -126,12 +134,13 @@ function Models({ report, plan, syncOutcome, syncing, loading, remoteTarget, que
 }
 
 function ClaudeInitSection({ manifest, status, onCreated, onNotice, onBeginWork, onEndWork, busy }: { manifest: string; status?: Status; onCreated: () => Promise<void>; onNotice: (message: string) => void; onBeginWork: () => void; onEndWork: () => void; busy: boolean }) {
-  const [baseURL, setBaseURL] = useState("");
+  const suggestedBaseURL = status?.cpa_endpoint?.replace(/\/v1\/?$/, "") ?? "";
+  const [baseURL, setBaseURL] = useState(suggestedBaseURL);
   const [preview, setPreview] = useState<ClaudeInitReport>();
   const [confirmProtocol, setConfirmProtocol] = useState(false);
   const [confirmAuth, setConfirmAuth] = useState(false);
   const [working, setWorking] = useState(false);
-  useEffect(() => { setPreview(undefined); setConfirmProtocol(false); setConfirmAuth(false); }, [manifest]);
+  useEffect(() => { setBaseURL(suggestedBaseURL); setPreview(undefined); setConfirmProtocol(false); setConfirmAuth(false); }, [manifest, suggestedBaseURL]);
 
   async function previewInit() {
     setWorking(true);
@@ -154,8 +163,8 @@ function ClaudeInitSection({ manifest, status, onCreated, onNotice, onBeginWork,
 
   return <section className="settings-section">
     <h2>Initialize Claude Code</h2>
-    <p className="section-help">Only for a missing settings file. Use an Anthropic-compatible base URL on this CPA endpoint, without /v1 (Claude Code adds it). No token is stored or copied.</p>
-    <label><span>Anthropic base URL</span><input value={baseURL} onChange={(event) => { setBaseURL(event.target.value); setPreview(undefined); }} placeholder={status?.cpa_endpoint?.replace(/\/v1\/?$/, "") ?? "http://127.0.0.1:8317"} disabled={busy || working} /></label>
+    <p className="section-help">Only for a missing settings file. Use an Anthropic-compatible base URL on this CPA endpoint, without /v1 (Claude Code adds it). No token is stored or copied. The model allowlist filters the picker; explicit --model can still request other IDs.</p>
+    <label><span>Anthropic base URL</span><input value={baseURL} onChange={(event) => { setBaseURL(event.target.value); setPreview(undefined); }} placeholder="http://127.0.0.1:8317" disabled={busy || working} /></label>
     <div className="remote-actions"><button className="secondary" onClick={previewInit} disabled={busy || working || !baseURL.trim()}>Preview Claude settings</button><button className="primary" onClick={createSettings} disabled={busy || working || !preview || !confirmProtocol || !confirmAuth}>Create settings</button></div>
     {preview && <div className="remote-summary"><strong>Preview: {preview.visible_models} visible models</strong><p>{preview.path}</p><p>Claude base URL: {preview.base_url}</p><p>{preview.detail}</p></div>}
     {preview && <div className="confirmations">
@@ -165,15 +174,59 @@ function ClaudeInitSection({ manifest, status, onCreated, onNotice, onBeginWork,
   </section>;
 }
 
+function ClaudeAdoptSection({ manifest, status, onCreated, onNotice, onBeginWork, onEndWork, busy }: { manifest: string; status?: Status; onCreated: () => Promise<void>; onNotice: (message: string) => void; onBeginWork: () => void; onEndWork: () => void; busy: boolean }) {
+  const suggestedBaseURL = status?.cpa_endpoint?.replace(/\/v1\/?$/, "") ?? "";
+  const [baseURL, setBaseURL] = useState(suggestedBaseURL);
+  const [preview, setPreview] = useState<ClaudeAdoptReport>();
+  const [confirmProtocol, setConfirmProtocol] = useState(false);
+  const [confirmReplace, setConfirmReplace] = useState(false);
+  const [working, setWorking] = useState(false);
+  useEffect(() => { setBaseURL(suggestedBaseURL); setPreview(undefined); setConfirmProtocol(false); setConfirmReplace(false); }, [manifest, suggestedBaseURL]);
+
+  async function previewSwitch() {
+    setWorking(true);
+    onBeginWork();
+    try { setPreview(await adoptClaude(manifest, baseURL, false, false, false)); }
+    catch (error) { setPreview(undefined); onNotice(String(error)); }
+    finally { setWorking(false); onEndWork(); }
+  }
+
+  async function switchProvider() {
+    setWorking(true);
+    onBeginWork();
+    try {
+      const result = await adoptClaude(manifest, baseURL, confirmProtocol, confirmReplace, true);
+      await onCreated();
+      onNotice(`${result.action} ${result.path}${result.backup ? ` · Backup: ${result.backup}` : ""}. Reconnect Claude Code to use CPA.`);
+    } catch (error) { onNotice(String(error)); }
+    finally { setWorking(false); onEndWork(); }
+  }
+
+  return <section className="settings-section">
+    <h2>Switch Claude Code to CPA</h2>
+    <p className="section-help">Your existing Claude settings use another provider. Switching backs up the whole file, removes that provider's token and model pins, and preserves unrelated preferences. The CPA credential stays in its existing environment or auth helper; it is never copied into settings.json.</p>
+    <label><span>Anthropic base URL</span><input value={baseURL} onChange={(event) => { setBaseURL(event.target.value); setPreview(undefined); }} placeholder="http://127.0.0.1:8317" disabled={busy || working} /></label>
+    <div className="remote-actions"><button className="secondary" onClick={previewSwitch} disabled={busy || working || !baseURL.trim()}>Preview switch</button><button className="primary" onClick={switchProvider} disabled={busy || working || !preview || !preview.auth_ready || !confirmProtocol || !confirmReplace}>Back up &amp; switch Claude</button></div>
+    {preview && <div className="remote-summary"><strong>Preview: {preview.visible_models} visible models · {preview.auth_ready ? "CPA credential available" : "CPA credential missing"}</strong><p>{preview.path}</p><p>Claude base URL: {preview.base_url}</p><p>Remove old provider keys: {preview.removed_env_keys.join(", ") || "none"}</p><p>{preview.detail}</p></div>}
+    {preview && <div className="confirmations">
+      <label><input type="checkbox" checked={confirmProtocol} onChange={(event) => setConfirmProtocol(event.target.checked)} /><span>I confirmed this CPA URL supports Claude's Anthropic API.</span></label>
+      <label><input type="checkbox" checked={confirmReplace} onChange={(event) => setConfirmReplace(event.target.checked)} /><span>Replace my current Claude provider after a private backup.</span></label>
+    </div>}
+  </section>;
+}
+
 function Settings({ manifest, manifestDraft, setManifestDraft, onLoadManifest, status, catalogReady, catalogPreview, platforms, remoteTarget, setRemoteTarget, remoteStatus, remotePlan, remoteResult, onRemoteCheck, onRemoteSync, onCatalogPreview, onCatalogCreate, onClaudeCreated, onNotice, onBeginWork, onEndWork, onAction, onInit, busy }: { manifest: string; manifestDraft: string; setManifestDraft: (value: string) => void; onLoadManifest: () => void; status?: Status; catalogReady: boolean; catalogPreview?: CatalogBootstrapReport; platforms?: PlatformsReport; remoteTarget: string; setRemoteTarget: (value: string) => void; remoteStatus?: RemoteReport; remotePlan?: RemoteSyncReport; remoteResult?: RemoteSyncReport; onRemoteCheck: () => void; onRemoteSync: () => void; onCatalogPreview: () => void; onCatalogCreate: () => void; onClaudeCreated: () => Promise<void>; onNotice: (message: string) => void; onBeginWork: () => void; onEndWork: () => void; onAction: (action: "setup" | "up" | "down") => void; onInit: () => void; busy: boolean }) {
   const claudeMissing = platforms?.platforms.some((platform) => platform.id === "claude" && platform.state === "missing");
+  const claudeUnrelated = platforms?.platforms.some((platform) => platform.id === "claude" && platform.state === "unrelated");
+  const missingRemoteModels = remotePlan?.model_policy.missing?.length ?? 0;
   return (
     <div className="view narrow">
       <header className="page-head"><div><h1>Settings</h1><p>Bridge-owned configuration</p></div></header>
-      <section className="settings-section"><h2>Manifest</h2><label><span>Path</span><input value={manifestDraft} onChange={(event) => setManifestDraft(event.target.value)} /></label><p className="section-help">Loaded: {manifest}. Apply a new path before initializing or syncing it. Existing files are never overwritten.</p><div className="remote-actions"><button className="secondary" onClick={onLoadManifest} disabled={busy || !manifestDraft.trim() || manifestDraft.trim() === manifest}>Load manifest</button><button className="secondary" onClick={onInit} disabled={busy || manifestDraft.trim() !== manifest}>Initialize from this Mac</button></div></section>
+      <section className="settings-section"><h2>Manifest</h2><label><span>Path</span><input value={manifestDraft} onChange={(event) => setManifestDraft(event.target.value)} /></label><p className="section-help manifest-help">Loaded: {manifest}. Apply a new path before initializing or syncing it. Existing files are never overwritten.</p><div className="remote-actions"><button className="secondary" onClick={onLoadManifest} disabled={busy || !manifestDraft.trim() || manifestDraft.trim() === manifest}>Load manifest</button><button className="secondary" onClick={onInit} disabled={busy || manifestDraft.trim() !== manifest}>Initialize from this Mac</button></div></section>
       <section className="settings-section"><h2>Profile paths</h2><dl><div><dt>Native Codex</dt><dd>{status?.official_home ?? "-"}</dd></div><div><dt>CPA Codex</dt><dd>{status?.cpa_home ?? "-"}</dd></div><div><dt>CPA endpoint</dt><dd>{status?.cpa_endpoint ?? "-"}</dd></div></dl></section>
       {!catalogReady && status && <section className="settings-section"><h2>Model catalog setup</h2><p className="section-help">If this is a new CPA profile, preview a catalog generated from CPA's full Codex metadata. Existing catalogs are never overwritten.</p><div className="remote-actions"><button className="secondary" onClick={onCatalogPreview} disabled={busy}>Preview catalog</button><button className="primary" onClick={onCatalogCreate} disabled={busy || !catalogPreview}>Create catalog</button></div>{catalogPreview && <p className="section-help">{catalogPreview.cpa_models} models can be created at {catalogPreview.path}.</p>}</section>}
       {claudeMissing && catalogReady && <ClaudeInitSection manifest={manifest} status={status} onCreated={onClaudeCreated} onNotice={onNotice} onBeginWork={onBeginWork} onEndWork={onEndWork} busy={busy} />}
+      {claudeUnrelated && catalogReady && <ClaudeAdoptSection manifest={manifest} status={status} onCreated={onClaudeCreated} onNotice={onNotice} onBeginWork={onBeginWork} onEndWork={onEndWork} busy={busy} />}
       <section className="settings-section"><h2>Platform configuration</h2><p className="section-help">Detected paths and actual model visibility sources. Scan does not change configuration.</p>
         <div className="platform-list">{platforms?.platforms.map((platform) => (
           <div className="platform-item" key={platform.id}>
@@ -188,8 +241,8 @@ function Settings({ manifest, manifestDraft, setManifestDraft, onLoadManifest, s
         <label><span>SSH target</span><input value={remoteTarget} onChange={(event) => setRemoteTarget(event.target.value)} placeholder="devbox" disabled={busy} /></label>
         <div className="remote-actions"><button className="secondary" onClick={onRemoteCheck} disabled={busy || !remoteTarget.trim()}>Check &amp; preview</button><button className="primary" onClick={onRemoteSync} disabled={busy || !remoteStatus?.ready || !remotePlan}>Sync remote</button></div>
         {remoteStatus && <div className="remote-summary"><strong>{remoteStatus.ready ? "Remote ready" : "Remote needs attention"}</strong><span>{remoteStatus.resolved_user}@{remoteStatus.resolved_host}:{remoteStatus.resolved_port} · CPA {remoteStatus.cpa_http_status ?? "unknown"}</span><p>{remoteStatus.detail}</p></div>}
-        {remotePlan && <div className="remote-summary"><strong>Preview</strong><p>{remotePlan.model_policy.changes.length} visibility changes · {remotePlan.model_policy.missing?.length ?? 0} models not yet in remote catalog</p>{remotePlan.model_policy.changes.length > 0 && <small>Changes: {remotePlan.model_policy.changes.map((change) => `${change.slug}: ${change.from} → ${change.to}`).join(", ")}</small>}{(remotePlan.model_policy.missing?.length ?? 0) > 0 && <small>Missing: {remotePlan.model_policy.missing?.join(", ")}. Sync will refresh from remote CPA first; models it does not provide remain unavailable there.</small>}</div>}
-        {remoteResult && <div className="remote-summary"><strong>Last sync: {remoteResult.action}</strong><p>{remoteResult.detail}</p>{remoteResult.model_policy.backup && <small>Catalog backup: {remoteResult.model_policy.backup}</small>}{remoteResult.catalog_refresh?.backup && <small>Refresh backup: {remoteResult.catalog_refresh.backup}</small>}</div>}
+        {remotePlan && <div className="remote-summary"><strong>Preview</strong><p>{remotePlan.model_policy.changes.length} visibility changes · {missingRemoteModels} {missingRemoteModels === 1 ? "model" : "models"} not yet in remote catalog</p>{remotePlan.model_policy.changes.length > 0 && <small>Changes: {remotePlan.model_policy.changes.map((change) => `${change.slug}: ${change.from} → ${change.to}`).join(", ")}</small>}{missingRemoteModels > 0 && <small>Missing: {remotePlan.model_policy.missing?.join(", ")}. Sync will refresh from remote CPA first; models it does not provide remain unavailable there.</small>}{remotePlan.platforms.items?.length > 0 && <><strong>Remote platform plan</strong><PlatformResultRows report={remotePlan.platforms} /></>}</div>}
+        {remoteResult && <div className="remote-summary"><strong>Last sync: {remoteResult.action}</strong><p>{remoteResult.detail}</p><p>Remote platforms: {platformSyncSummary(remoteResult.platforms)}.</p><PlatformResultRows report={remoteResult.platforms} />{remoteResult.model_policy.backup && <small>Catalog backup: {remoteResult.model_policy.backup}</small>}{remoteResult.catalog_refresh?.backup && <small>Refresh backup: {remoteResult.catalog_refresh.backup}</small>}</div>}
       </section>
       <section className="settings-section action-section"><div><h2>Local SSH service</h2><p>{status?.ssh_port_open ? "Running" : "Stopped"}</p></div><div><button className="secondary" onClick={() => onAction("down")} disabled={busy || !status?.ssh_port_open || status?.ssh_management === "external"}>Stop</button><button className="primary" onClick={() => onAction("setup")} disabled={busy}>Run setup</button></div></section>
     </div>

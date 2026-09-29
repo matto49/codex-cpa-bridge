@@ -117,10 +117,10 @@ func scanClaude(m Manifest) PlatformReport {
 		return r
 	}
 	if !settings.EnforceAvailableModels {
-		r.State, r.Detail = "needs_setup", "Model restriction is not enabled"
+		r.State, r.Detail = "needs_setup", "Claude picker allowlist is not enabled"
 		return r
 	}
-	r.State, r.Detail = "ready", fmt.Sprintf("%d models allowed by Claude settings; runtime authentication and protocol not verified", len(settings.AvailableModels))
+	r.State, r.Detail = "ready", fmt.Sprintf("%d model IDs in Claude picker allowlist; explicit --model can still request others; runtime authentication and protocol not verified", len(settings.AvailableModels))
 	return r
 }
 
@@ -159,7 +159,7 @@ func scanXbot(m Manifest) PlatformReport {
 	}
 	r.CPAEndpoint = true
 	r.RestartNeeded = true
-	r.State, r.Detail = "ready", fmt.Sprintf("%d CPA subscription(s), %d model entries in xbot database; disabled models remain greyed out in xbot's picker", len(snapshot.subscriptions), len(snapshot.models))
+	r.State, r.Detail = "limited", fmt.Sprintf("%d CPA subscription(s), %d model entries in xbot database; disabled models remain greyed out in xbot's picker", len(snapshot.subscriptions), len(snapshot.models))
 	if !configCPA {
 		r.Detail += "; fallback config is separate and will be preserved"
 	}

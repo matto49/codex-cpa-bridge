@@ -70,3 +70,24 @@ func TestSameEndpointNormalizesV1Only(t *testing.T) {
 		}
 	}
 }
+
+func TestScanClaudeDescribesPickerBoundary(t *testing.T) {
+	m := testManifest(t)
+	m.Platforms.ClaudeSettingsJSON = filepath.Join(t.TempDir(), "settings.json")
+	settings := `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8317"},"availableModels":["claude-sonnet-4-6"],"enforceAvailableModels":true}`
+	if err := os.WriteFile(m.Platforms.ClaudeSettingsJSON, []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report := scanClaude(m)
+	if report.State != "ready" || !strings.Contains(report.Detail, "picker allowlist") || !strings.Contains(report.Detail, "--model") {
+		t.Fatalf("Claude scan should not imply hard model access control: %+v", report)
+	}
+}
+
+func TestScanXbotReportsLimitedPicker(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317")
+	report := scanXbot(m)
+	if report.State != "limited" || !report.CPAEndpoint || !strings.Contains(report.Detail, "greyed out") {
+		t.Fatalf("xbot adapter readiness must not imply hidden models disappear: %+v", report)
+	}
+}

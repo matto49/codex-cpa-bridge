@@ -44,6 +44,15 @@ func TestInstallRemoteFirstRunAndIdempotence(t *testing.T) {
 	if err := os.WriteFile(binaryPath, image, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("BRIDGE_TEST_REMOTE_USER", "root")
+	rejected, err := InstallRemote("fresh-host", binaryPath, RemoteInstallOptions{Setup: true})
+	if err == nil || !strings.Contains(err.Error(), "non-root") || rejected.BinaryInstalled {
+		t.Fatalf("root setup was not rejected before installation: %+v, %v", rejected, err)
+	}
+	if _, err := os.Stat(filepath.Join(remoteDir, "bin")); !os.IsNotExist(err) {
+		t.Fatalf("root setup changed the remote before rejection: %v", err)
+	}
+	t.Setenv("BRIDGE_TEST_REMOTE_USER", "mock")
 	first, err := InstallRemote("fresh-host", binaryPath, RemoteInstallOptions{Setup: true})
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +121,7 @@ const fakeRemoteSSH = `#!/bin/sh
 set -eu
 remote_dir=$BRIDGE_TEST_REMOTE_DIR
 if [ "$1" = "-G" ]; then
-  printf 'hostname mock.example\nuser mock\nport 22\n'
+  printf 'hostname mock.example\nuser %s\nport 22\n' "${BRIDGE_TEST_REMOTE_USER:-mock}"
   exit 0
 fi
 remote_command=

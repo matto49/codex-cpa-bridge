@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { syncSummary, syncTargets } from '../src/syncFlow.ts';
+import { platformSyncSummary, syncSummary, syncTargets } from '../src/syncFlow.ts';
 
 const localReport = { catalog_path: '/test/catalog.json', items: [], changed: 1, failed: 0 };
 const remoteReport = {
@@ -53,4 +53,30 @@ test('local result is reported while a slower remote target is still pending', a
   const finished = await running;
   assert.equal(finished.remote, remoteReport);
   assert.equal(updates.at(-1)?.remote, remoteReport);
+});
+
+test('skipped platforms are reported separately from failures', () => {
+  const report = {
+    catalog_path: '/test/catalog.json', changed: 0, failed: 0,
+    items: [
+      { id: 'codex', action: 'noop', result: 'noop' },
+      { id: 'claude', action: 'skipped', result: 'skipped' },
+      { id: 'xbot', action: 'skipped', result: 'skipped' },
+    ],
+  };
+  assert.equal(platformSyncSummary(report), '0 updated, 2 skipped, 0 blocked or failed');
+  assert.match(syncSummary({ local: report }, false), /Local: 0 updated, 2 skipped, 0 blocked or failed/);
+});
+
+test('remote partial result includes its per-platform outcome in the notice', () => {
+  const platforms = {
+    catalog_path: '/test/remote-catalog.json', changed: 1, failed: 1,
+    items: [
+      { id: 'codex', action: 'noop', result: 'noop' },
+      { id: 'claude', action: 'blocked', result: 'blocked' },
+      { id: 'xbot', action: 'update', result: 'updated' },
+    ],
+  };
+  const remote = { ...remoteReport, action: 'needs_attention', platforms, detail: 'Remote platform propagation needs attention' };
+  assert.match(syncSummary({ remote }, true), /Remote \(devbox\): Remote platform propagation needs attention Platform results: 1 updated, 0 skipped, 1 blocked or failed/);
 });

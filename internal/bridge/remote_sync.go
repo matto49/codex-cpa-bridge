@@ -42,11 +42,19 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 	if err := remoteModelPolicy(ctx, target, "plan", encoded, &report.ModelPolicy); err != nil {
 		return report, err
 	}
-	if len(report.ModelPolicy.Missing) > 0 {
-		if !write {
-			report.Detail = remotePreviewDetail(report.ModelPolicy)
-			return report, nil
+	if !write {
+		command := `"$HOME/.local/bin/bridge-go" --manifest "$HOME/.config/codex-cpa-bridge/bridge.toml" platforms plan --json`
+		output, err := remoteCommand(ctx, target, command, nil)
+		if err != nil {
+			return report, fmt.Errorf("remote platform plan failed: %w", err)
 		}
+		if err := json.Unmarshal(output, &report.Platforms); err != nil {
+			return report, errors.New("remote platform plan returned invalid JSON")
+		}
+		report.Detail = remotePreviewDetail(report.ModelPolicy)
+		return report, nil
+	}
+	if len(report.ModelPolicy.Missing) > 0 {
 		refreshCommand := `"$HOME/.local/bin/bridge-go" --manifest "$HOME/.config/codex-cpa-bridge/bridge.toml" models refresh --json`
 		output, err := remoteCommand(ctx, target, refreshCommand, nil)
 		if err != nil {
@@ -61,10 +69,6 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 		if err := remoteModelPolicy(ctx, target, "plan", encoded, &report.ModelPolicy); err != nil {
 			return report, err
 		}
-	}
-	if !write {
-		report.Detail = remotePreviewDetail(report.ModelPolicy)
-		return report, nil
 	}
 	if err := remoteModelPolicy(ctx, target, "apply", encoded, &report.ModelPolicy); err != nil {
 		return report, err

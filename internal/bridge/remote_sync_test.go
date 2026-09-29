@@ -6,7 +6,7 @@ import (
 )
 
 func TestRemotePreviewDistinguishesDriftFromUnavailable(t *testing.T) {
-	policy := ModelPolicyReport{Missing: []string{"remote-unavailable"}}
+	policy := ModelPolicyReport{Missing: []string{"remote-unavailable"}, ExtraVisibleChecked: true}
 	if detail := remotePreviewDetail(policy, nil); !strings.Contains(detail, "already matches") || !strings.Contains(detail, "1 source model") || !strings.Contains(detail, "not verified") {
 		t.Fatalf("missing catalog entry was falsely called unavailable: %q", detail)
 	}
@@ -29,13 +29,22 @@ func TestRemotePreviewDistinguishesDriftFromUnavailable(t *testing.T) {
 	if detail := remotePreviewDetail(policy, nil); !strings.Contains(detail, "no write needed") {
 		t.Fatalf("complete no-drift preview claimed a pending change: %q", detail)
 	}
+	policy.ExtraVisible = []string{"remote-only"}
+	if detail := remotePreviewDetail(policy, nil); !strings.Contains(detail, "1 remote-only visible model") || !strings.Contains(detail, "full catalogs do not match") {
+		t.Fatalf("remote-only visible model was omitted from preview: %q", detail)
+	}
+	policy.ExtraVisible = nil
+	policy.ExtraVisibleChecked = false
+	if detail := remotePreviewDetail(policy, nil); !strings.Contains(detail, "remote-only visible models were not checked") {
+		t.Fatalf("older remote CLI was falsely treated as fully checked: %q", detail)
+	}
 }
 
 func TestRemoteSyncReportDistinguishesAppliedFromUnchangedPartial(t *testing.T) {
 	unchanged := RemoteSyncReport{
 		Action:      "applied_partial",
 		RemoteReady: true,
-		ModelPolicy: ModelPolicyReport{Missing: []string{"remote-unavailable"}},
+		ModelPolicy: ModelPolicyReport{Missing: []string{"remote-unavailable"}, ExtraVisibleChecked: true},
 	}
 	finishRemoteSyncReport(&unchanged)
 	if unchanged.Action != "unchanged_partial" || !strings.Contains(unchanged.Detail, "already matches") || !strings.Contains(unchanged.Detail, "1 source model remains") {
@@ -48,7 +57,7 @@ func TestRemoteSyncReportDistinguishesAppliedFromUnchangedPartial(t *testing.T) 
 	if changed.Action != "applied_partial" || !strings.Contains(changed.Detail, "Matching models synchronized") {
 		t.Fatalf("applied change reported as no-op: %+v", changed)
 	}
-	complete := RemoteSyncReport{Action: "applied", RemoteReady: true}
+	complete := RemoteSyncReport{Action: "applied", RemoteReady: true, ModelPolicy: ModelPolicyReport{ExtraVisibleChecked: true}}
 	finishRemoteSyncReport(&complete)
 	if complete.Action != "unchanged" || !strings.Contains(complete.Detail, "no changes applied") {
 		t.Fatalf("no-op complete sync reported as applied: %+v", complete)
@@ -68,5 +77,19 @@ func TestRemoteSyncReportDistinguishesAppliedFromUnchangedPartial(t *testing.T) 
 	finishRemoteSyncReport(&withUnlisted)
 	if withUnlisted.Action != "needs_attention" || !strings.Contains(withUnlisted.Detail, "outside the source catalog") {
 		t.Fatalf("remote unlisted model reported fully synchronized: %+v", withUnlisted)
+	}
+	withExtra := RemoteSyncReport{
+		Action:      "applied",
+		RemoteReady: true,
+		ModelPolicy: ModelPolicyReport{ExtraVisible: []string{"remote-only"}, ExtraVisibleChecked: true},
+	}
+	finishRemoteSyncReport(&withExtra)
+	if withExtra.Action != "needs_attention" || !strings.Contains(withExtra.Detail, "1 remote-only visible model") || !strings.Contains(withExtra.Detail, "full catalogs do not match") {
+		t.Fatalf("remote-only visible model reported fully synchronized: %+v", withExtra)
+	}
+	legacy := RemoteSyncReport{Action: "applied", RemoteReady: true}
+	finishRemoteSyncReport(&legacy)
+	if legacy.Action != "needs_attention" || !strings.Contains(legacy.Detail, "remote-only visible models were not checked") {
+		t.Fatalf("older remote CLI reported as fully synchronized: %+v", legacy)
 	}
 }

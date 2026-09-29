@@ -113,7 +113,7 @@ export type RemoteReport = {
 export type RemoteSyncReport = {
   target: string;
   action: string;
-  model_policy: { changes: { slug: string; from: string; to: string }[]; missing?: string[]; applied: boolean; backup?: string };
+  model_policy: { changes: { slug: string; from: string; to: string }[]; missing?: string[]; extra_visible?: string[]; extra_visible_checked?: boolean; applied: boolean; backup?: string };
   catalog_refresh?: { added: string[]; backup?: string; written: boolean };
   platforms: PlatformSyncReport;
   remote_ready: boolean;

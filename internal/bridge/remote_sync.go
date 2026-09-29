@@ -107,17 +107,19 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 }
 
 func remotePreviewDetail(policy ModelPolicyReport, refresh *CatalogRefreshReport) string {
+	var detail string
 	if len(policy.Missing) == 0 {
 		if len(policy.Changes) == 0 {
-			return "Remote model visibility already matches; no write needed"
+			detail = "Shared model visibility already matches; no write needed"
+		} else {
+			detail = fmt.Sprintf("Remote catalog would change %d shared model visibility flags; pass --write to apply", len(policy.Changes))
 		}
-		return fmt.Sprintf("Remote catalog would change %d model visibility flags; pass --write to apply", len(policy.Changes))
+		return appendExtraVisibleDetail(detail, policy.ExtraVisible, policy.ExtraVisibleChecked)
 	}
 	modelWord := "models"
 	if len(policy.Missing) == 1 {
 		modelWord = "model"
 	}
-	var detail string
 	if refresh == nil {
 		detail = fmt.Sprintf("Remote catalog is missing %d source %s; live CPA availability was not verified in this preview", len(policy.Missing), modelWord)
 	} else {
@@ -157,7 +159,21 @@ func remotePreviewDetail(policy ModelPolicyReport, refresh *CatalogRefreshReport
 	} else {
 		detail = "Shared model visibility already matches. " + detail
 	}
-	return detail
+	return appendExtraVisibleDetail(detail, policy.ExtraVisible, policy.ExtraVisibleChecked)
+}
+
+func appendExtraVisibleDetail(detail string, extra []string, checked bool) string {
+	if !checked {
+		return detail + "; remote-only visible models were not checked; update the remote bridge CLI"
+	}
+	if len(extra) == 0 {
+		return detail
+	}
+	modelWord := "models"
+	if len(extra) == 1 {
+		modelWord = "model"
+	}
+	return fmt.Sprintf("%s; %d remote-only visible %s remain preserved, so the full catalogs do not match", detail, len(extra), modelWord)
 }
 
 func finishRemoteSyncReport(report *RemoteSyncReport) {
@@ -173,6 +189,14 @@ func finishRemoteSyncReport(report *RemoteSyncReport) {
 			return
 		}
 	}
+	finishRemoteSharedVisibilityReport(report)
+	if !report.ModelPolicy.ExtraVisibleChecked || len(report.ModelPolicy.ExtraVisible) > 0 {
+		report.Action = "needs_attention"
+		report.Detail = appendExtraVisibleDetail(report.Detail, report.ModelPolicy.ExtraVisible, report.ModelPolicy.ExtraVisibleChecked)
+	}
+}
+
+func finishRemoteSharedVisibilityReport(report *RemoteSyncReport) {
 	changed := report.ModelPolicy.Applied || report.CatalogRefresh != nil && report.CatalogRefresh.Written || report.Platforms.Changed > 0
 	if len(report.ModelPolicy.Missing) == 0 {
 		if changed {

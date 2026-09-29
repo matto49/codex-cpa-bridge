@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 )
 
@@ -25,11 +26,13 @@ type ModelPolicyChange struct {
 }
 
 type ModelPolicyReport struct {
-	Path    string              `json:"path"`
-	Changes []ModelPolicyChange `json:"changes"`
-	Missing []string            `json:"missing,omitempty"`
-	Backup  string              `json:"backup,omitempty"`
-	Applied bool                `json:"applied"`
+	Path                string              `json:"path"`
+	Changes             []ModelPolicyChange `json:"changes"`
+	Missing             []string            `json:"missing,omitempty"`
+	ExtraVisible        []string            `json:"extra_visible,omitempty"`
+	ExtraVisibleChecked bool                `json:"extra_visible_checked"`
+	Backup              string              `json:"backup,omitempty"`
+	Applied             bool                `json:"applied"`
 }
 
 func ExportModelPolicy(m Manifest) (VisibilityPolicy, error) {
@@ -107,6 +110,7 @@ func planModelPolicy(m Manifest, policy VisibilityPolicy) (ModelPolicyReport, []
 	if err != nil {
 		return report, nil, nil, err
 	}
+	report.ExtraVisibleChecked = true
 	seen := make(map[string]bool, len(catalog.Models))
 	for _, model := range catalog.Models {
 		slug := rawString(model["slug"])
@@ -117,6 +121,8 @@ func planModelPolicy(m Manifest, policy VisibilityPolicy) (ModelPolicyReport, []
 				report.Changes = append(report.Changes, ModelPolicyChange{Slug: slug, From: current, To: visibility})
 				model["visibility"] = json.RawMessage(fmt.Sprintf("%q", visibility))
 			}
+		} else if rawString(model["visibility"]) == "list" {
+			report.ExtraVisible = append(report.ExtraVisible, slug)
 		}
 	}
 	for _, entry := range policy.Models {
@@ -124,6 +130,7 @@ func planModelPolicy(m Manifest, policy VisibilityPolicy) (ModelPolicyReport, []
 			report.Missing = append(report.Missing, entry.Slug)
 		}
 	}
+	sort.Strings(report.ExtraVisible)
 	if len(report.Changes) == 0 {
 		return report, before, before, nil
 	}

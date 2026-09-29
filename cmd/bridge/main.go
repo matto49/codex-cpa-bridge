@@ -483,7 +483,7 @@ func run(argv []string) int {
 			} else {
 				fmt.Printf("%s: %s\n", report.Target, report.Detail)
 			}
-			if *write && (!report.RemoteReady || report.Platforms.Failed > 0) {
+			if *write && report.Action == "needs_attention" {
 				return 1
 			}
 			return 0

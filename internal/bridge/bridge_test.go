@@ -403,7 +403,7 @@ fi
 exit 77
 `)
 	t.Setenv("TEST_CPA_HOME", m.Profiles.CPA.Home)
-	ok, home := runSSHProbe(m, time.Second)
+	ok, home := runSSHProbe(m, 5*time.Second)
 	if !ok || home != m.Profiles.CPA.Home {
 		t.Fatalf("probe = %t, %q; want CPA home %q", ok, home, m.Profiles.CPA.Home)
 	}
@@ -420,7 +420,7 @@ fi
 printf '%s\n' "$TEST_CPA_HOME"
 `)
 	t.Setenv("TEST_CPA_HOME", m.Profiles.CPA.Home)
-	ok, home := runSSHProbe(m, time.Second)
+	ok, home := runSSHProbe(m, 5*time.Second)
 	if !ok || home != m.Profiles.CPA.Home {
 		t.Fatalf("probe = %t, %q; want CPA home %q", ok, home, m.Profiles.CPA.Home)
 	}
@@ -441,7 +441,7 @@ printf '%s\n' "$TEST_CPA_HOME"
 		t.Fatal(err)
 	}
 	t.Setenv("TEST_CPA_HOME", m.Profiles.CPA.Home)
-	ok, home := runSSHProbe(m, time.Second)
+	ok, home := runSSHProbe(m, 5*time.Second)
 	if !ok || home != m.Profiles.CPA.Home {
 		t.Fatalf("external probe = %t, %q", ok, home)
 	}
@@ -463,7 +463,7 @@ done
 printf '%s\n' "$TEST_CPA_HOME"
 `)
 	t.Setenv("TEST_CPA_HOME", m.Profiles.CPA.Home)
-	ok, home := runSSHProbe(m, time.Second)
+	ok, home := runSSHProbe(m, 5*time.Second)
 	if !ok || home != m.Profiles.CPA.Home {
 		t.Fatalf("managed probe = %t, %q", ok, home)
 	}

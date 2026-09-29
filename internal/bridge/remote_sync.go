@@ -133,15 +133,27 @@ func remotePreviewDetail(policy ModelPolicyReport, refresh *CatalogRefreshReport
 		}
 		switch {
 		case refreshable == len(policy.Missing):
-			detail = fmt.Sprintf("Remote catalog is missing %d source %s, but authenticated CPA advertises all of them; write can refresh the catalog", len(policy.Missing), modelWord)
+			advertised := "all of them"
+			if len(policy.Missing) == 1 {
+				advertised = "it"
+			}
+			detail = fmt.Sprintf("Remote catalog is missing %d source %s, but authenticated CPA advertises %s; write can refresh the catalog", len(policy.Missing), modelWord, advertised)
 		case refreshable == 0:
-			detail = fmt.Sprintf("Remote CPA does not advertise %d source %s; catalog refresh cannot add them", len(policy.Missing), modelWord)
+			pronoun := "them"
+			if len(policy.Missing) == 1 {
+				pronoun = "it"
+			}
+			detail = fmt.Sprintf("Remote CPA does not advertise %d source %s; catalog refresh cannot add %s", len(policy.Missing), modelWord, pronoun)
 		default:
 			detail = fmt.Sprintf("Remote catalog is missing %d source %s; CPA advertises %d for refresh and does not advertise %d", len(policy.Missing), modelWord, refreshable, len(policy.Missing)-refreshable)
 		}
 	}
 	if len(policy.Changes) > 0 {
-		detail += fmt.Sprintf("; write can also apply %d shared visibility change(s)", len(policy.Changes))
+		changeWord := "changes"
+		if len(policy.Changes) == 1 {
+			changeWord = "change"
+		}
+		detail += fmt.Sprintf("; write can also apply %d shared visibility %s", len(policy.Changes), changeWord)
 	} else {
 		detail = "Shared model visibility already matches. " + detail
 	}

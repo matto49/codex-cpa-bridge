@@ -10,7 +10,7 @@ func TestRemotePreviewDistinguishesDriftFromUnavailable(t *testing.T) {
 	if detail := remotePreviewDetail(policy, nil); !strings.Contains(detail, "already matches") || !strings.Contains(detail, "1 source model") || !strings.Contains(detail, "not verified") {
 		t.Fatalf("missing catalog entry was falsely called unavailable: %q", detail)
 	}
-	if detail := remotePreviewDetail(policy, &CatalogRefreshReport{Added: []string{"remote-unavailable"}}); !strings.Contains(detail, "advertises all") || !strings.Contains(detail, "refresh the catalog") {
+	if detail := remotePreviewDetail(policy, &CatalogRefreshReport{Added: []string{"remote-unavailable"}}); !strings.Contains(detail, "advertises it") || !strings.Contains(detail, "refresh the catalog") {
 		t.Fatalf("refreshable model was falsely called unavailable: %q", detail)
 	}
 	if detail := remotePreviewDetail(policy, &CatalogRefreshReport{}); !strings.Contains(detail, "does not advertise 1 source model") {

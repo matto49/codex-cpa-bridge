@@ -170,6 +170,8 @@ CLAUDE_CONFIG_DIR="$HOME/.config/codex-cpa-bridge/claude" \
 
 Run `claude --version` first; this launch command requires a working Claude Code installation. Using plain `claude` without the isolated directory and settings path still uses your everyday configuration. Neither the isolated profile nor the local mock verification below proves that a live CPA account can serve a Claude session.
 
+To check a real Claude Code request without allowing tool calls, use `claude --tools '' --strict-mcp-config --no-session-persistence --model YOUR_VISIBLE_CPA_MODEL -p 'Reply exactly CPA_OK' --output-format json` with the profile you intend to use. For an isolated profile, add `--settings "$HOME/.config/codex-cpa-bridge/claude/settings.json"`. `--restricted` deliberately ignores user settings files unless `--settings` is supplied, so a bare `Not logged in` result under that flag does not test the everyday profile. A successful `/v1/messages` doctor probe is narrower than this full-client check; either one may consume upstream quota. On one local CPA setup, the default `gpt-6-sol` completed a real Claude Code request, while `claude-sonnet-4-6` encountered upstream quota exhaustion and then an unavailable account route. Model availability remains account- and route-dependent.
+
 ## Desktop UI
 
 Tauri is the local control plane. The Rust shell only invokes the Go CLI; all configuration logic stays in Go.

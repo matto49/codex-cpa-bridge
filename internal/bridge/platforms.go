@@ -180,6 +180,26 @@ func scanXbot(m Manifest) PlatformReport {
 	}
 	r.CPAEndpoint = true
 	r.RestartNeeded = true
+	catalog, err := LoadModelCatalog(m)
+	if err != nil {
+		r.State, r.Detail = "needs_setup", "CPA model catalog cannot be read; repair it before checking xbot visibility"
+		return r
+	}
+	plan, _ := planXbotSnapshot(m, catalog.Models, snapshot)
+	switch plan.Action {
+	case "noop":
+		// The subscription flags and preferred selections match the catalog.
+	case "update":
+		r.State, r.Detail = "drift", "xbot subscription models differ from the CPA catalog; sync can repair them, but disabled models remain greyed out until xbot supports hiding them"
+		return r
+	case "skipped":
+		r.State, r.Detail = "unrelated", plan.Detail
+		r.CPAEndpoint = false
+		return r
+	default:
+		r.State, r.Detail = "needs_setup", plan.Detail
+		return r
+	}
 	r.State, r.Detail = "limited", fmt.Sprintf("%d CPA subscription(s), %d model entries in xbot database; disabled models remain greyed out in xbot's picker", len(snapshot.subscriptions), len(snapshot.models))
 	if !configCPA {
 		r.Detail += "; fallback config is separate and will be preserved"

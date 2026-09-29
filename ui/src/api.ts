@@ -40,7 +40,7 @@ export type Platform = {
   id: string;
   name: string;
   path: string;
-  state: "ready" | "missing" | "invalid" | "unrelated" | "needs_setup" | "needs_adapter" | "drift";
+  state: "ready" | "limited" | "missing" | "invalid" | "unrelated" | "needs_setup" | "needs_adapter" | "drift";
   detail: string;
   cpa_endpoint: boolean;
   visibility: string;

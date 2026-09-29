@@ -173,8 +173,23 @@ func TestScanClaudeDetectsCatalogVisibilityChange(t *testing.T) {
 
 func TestScanXbotReportsLimitedPicker(t *testing.T) {
 	m := syncFixture(t, "http://127.0.0.1:8317")
+	if scan := scanXbot(m); scan.State != "drift" || !scan.CPAEndpoint || !strings.Contains(scan.Detail, "greyed out") {
+		t.Fatalf("xbot model drift not detected: %+v", scan)
+	}
+	if result, err := SyncPlatformConfigs(m); err != nil || syncItem(result, "xbot").Result != "updated" {
+		t.Fatalf("xbot sync failed: %+v, %v", result, err)
+	}
 	report := scanXbot(m)
 	if report.State != "limited" || !report.CPAEndpoint || !strings.Contains(report.Detail, "greyed out") {
 		t.Fatalf("xbot adapter readiness must not imply hidden models disappear: %+v", report)
+	}
+	if _, err := SetModelVisibility(m, "gpt-5.5", "list"); err != nil {
+		t.Fatal(err)
+	}
+	if scan := scanXbot(m); scan.State != "drift" {
+		t.Fatalf("xbot scan missed a catalog visibility change: %+v", scan)
+	}
+	if plan, err := PlanPlatformSync(m); err != nil || syncItem(plan, "xbot").Action != "update" {
+		t.Fatalf("xbot scan and plan disagree: %+v, %v", plan, err)
 	}
 }

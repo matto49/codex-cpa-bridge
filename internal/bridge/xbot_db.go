@@ -76,6 +76,11 @@ func planXbotDB(m Manifest, catalog []ModelSummary) (PlatformSyncItem, *xbotDBCh
 		item.Detail = "Cannot inspect xbot database: " + err.Error()
 		return item, nil
 	}
+	return planXbotSnapshot(m, catalog, snapshot)
+}
+
+func planXbotSnapshot(m Manifest, catalog []ModelSummary, snapshot xbotDBSnapshot) (PlatformSyncItem, *xbotDBChange) {
+	item := PlatformSyncItem{ID: "xbot", Path: m.Platforms.XbotDatabase, Action: "blocked"}
 	if len(snapshot.subscriptions) == 0 {
 		item.Action, item.Detail = "skipped", "No xbot subscription points to this CPA endpoint"
 		return item, nil

@@ -133,6 +133,8 @@ dd { min-width: 0; margin: 0; overflow: hidden; color: #424946; font-family: ui-
 .platform-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; font-size: 12px; }
 .platform-state { padding: 3px 7px; border-radius: 4px; background: #f0ece7; color: #8a5d30; font-size: 10px; text-transform: capitalize; }
 .platform-state.ready { background: #e6f3eb; color: #17653e; }
+.platform-state.limited { background: #fff2d8; color: #875a18; }
+.platform-state.drift { background: #fff0e9; color: #9b4e2f; }
 .platform-item code { display: block; overflow: hidden; color: #626a66; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .platform-item p { margin-top: 6px; color: #4e5652; font-size: 11px; line-height: 1.5; }
 .platform-item small { display: block; margin-top: 6px; color: #858c89; font-size: 10px; }

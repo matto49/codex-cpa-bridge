@@ -175,7 +175,7 @@ To check a real Claude Code request without allowing tool calls, use `claude --t
 ## Desktop UI
 
 Tauri is the local control plane. The Rust shell only invokes the Go CLI; all configuration logic stays in Go.
-It consumes `status`, `doctor --json`, `models list --json`, and platform scan/plan reports. It offers manifest initialization and a one-click sync after reviewing the plan. A model toggle currently updates the source catalog; sync applies it to other CPA-backed clients. See `docs/tauri-control-plane.md`.
+It consumes `status`, `doctor --json`, `models list --json`, and platform scan/plan reports. It offers manifest initialization and a one-click sync after reviewing the plan. A model toggle saves the source catalog, then automatically syncs local CPA-backed clients and the configured remote target independently; the UI reports partial failures and provides a separate Sync button to retry. Platform `ready` means the configuration matches the catalog, not that the client executable is installed or a live session has been verified. See `docs/tauri-control-plane.md`.
 
 Build on macOS (requires Node and a Rust toolchain):
 

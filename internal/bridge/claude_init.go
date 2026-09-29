@@ -14,6 +14,10 @@ type ClaudeInitReport struct {
 	Path              string `json:"path"`
 	BaseURL           string `json:"base_url"`
 	VisibleModels     int    `json:"visible_models"`
+	SelectedModel     string `json:"selected_model"`
+	AuthSource        string `json:"auth_source"`
+	AuthReady         bool   `json:"auth_ready"`
+	HelperConfigured  bool   `json:"helper_configured"`
 	ProtocolConfirmed bool   `json:"protocol_confirmed"`
 	AuthConfirmed     bool   `json:"auth_confirmed"`
 	RuntimeVerified   bool   `json:"runtime_verified"`
@@ -73,15 +77,35 @@ func InitClaudeSettings(m Manifest, baseURL string, confirmProtocol, confirmAuth
 	if len(visible) == 0 {
 		return ClaudeInitReport{}, errors.New("the source catalog has no visible models")
 	}
+	selected := m.Profiles.CPA.Model
+	if !containsModel(visible, selected) {
+		selected = visible[0]
+	}
+	helper := ""
+	if m.Profiles.CPA.EnvKey != "" || m.Profiles.CPA.AuthCommand != "" {
+		helper, err = claudeCPAAuthHelper(m.Profiles.CPA)
+		if err != nil {
+			return ClaudeInitReport{}, err
+		}
+	}
+	_, authSource := loadAuthToken(m.Profiles.CPA)
+	detail := "No credential will be written; Claude Code needs external authentication and an Anthropic-compatible CPA endpoint"
+	if helper != "" {
+		detail = "A secret-free CPA auth helper will be configured; Claude Code authentication and Anthropic protocol still need runtime verification"
+	}
 	report := ClaudeInitReport{
 		Path:              path,
 		BaseURL:           baseURL,
 		VisibleModels:     len(visible),
+		SelectedModel:     selected,
+		AuthSource:        authSource,
+		AuthReady:         strings.HasSuffix(authSource, ":present"),
+		HelperConfigured:  helper != "",
 		ProtocolConfirmed: confirmProtocol,
 		AuthConfirmed:     confirmAuth,
 		RuntimeVerified:   false,
 		Action:            "preview",
-		Detail:            "No credential will be written; Claude Code needs external authentication and an Anthropic-compatible CPA endpoint",
+		Detail:            detail,
 	}
 	if !write {
 		return report, nil
@@ -91,9 +115,13 @@ func InitClaudeSettings(m Manifest, baseURL string, confirmProtocol, confirmAuth
 	}
 	settings := map[string]any{
 		"env":                    map[string]string{"ANTHROPIC_BASE_URL": baseURL},
+		"model":                  selected,
 		"availableModels":        visible,
 		"enforceAvailableModels": true,
 		"modelPicker":            picker,
+	}
+	if helper != "" {
+		settings["apiKeyHelper"] = helper
 	}
 	content, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {

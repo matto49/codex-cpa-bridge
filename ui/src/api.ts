@@ -67,6 +67,10 @@ export type ClaudeInitReport = {
   path: string;
   base_url: string;
   visible_models: number;
+  selected_model: string;
+  auth_source: string;
+  auth_ready: boolean;
+  helper_configured: boolean;
   protocol_confirmed: boolean;
   auth_confirmed: boolean;
   runtime_verified: boolean;

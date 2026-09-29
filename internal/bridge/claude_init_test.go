@@ -23,7 +23,7 @@ func claudeInitFixture(t *testing.T) Manifest {
 func TestClaudeInitPreviewCreateAndScan(t *testing.T) {
 	m := claudeInitFixture(t)
 	preview, err := InitClaudeSettings(m, "http://127.0.0.1:8317", false, false, false)
-	if err != nil || preview.Action != "preview" || preview.VisibleModels != 1 || preview.RuntimeVerified {
+	if err != nil || preview.Action != "preview" || preview.VisibleModels != 1 || preview.SelectedModel != "visible" || preview.AuthReady || preview.HelperConfigured || preview.RuntimeVerified {
 		t.Fatalf("preview = %+v, %v", preview, err)
 	}
 	if _, err := os.Lstat(m.Platforms.ClaudeSettingsJSON); !os.IsNotExist(err) {
@@ -46,6 +46,7 @@ func TestClaudeInitPreviewCreateAndScan(t *testing.T) {
 	}
 	var settings struct {
 		Env                    map[string]string `json:"env"`
+		Model                  string            `json:"model"`
 		AvailableModels        []string          `json:"availableModels"`
 		EnforceAvailableModels bool              `json:"enforceAvailableModels"`
 		ModelPicker            claudeModelPicker `json:"modelPicker"`
@@ -53,7 +54,7 @@ func TestClaudeInitPreviewCreateAndScan(t *testing.T) {
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		t.Fatal(err)
 	}
-	if settings.Env["ANTHROPIC_BASE_URL"] != preview.BaseURL || len(settings.Env) != 1 || len(settings.AvailableModels) != 1 || settings.AvailableModels[0] != "visible" || !settings.EnforceAvailableModels || !settings.ModelPicker.ReplaceBuiltInOptions || len(settings.ModelPicker.Options) != 1 || settings.ModelPicker.Options[0] != (claudePickerOption{Model: "visible", Label: "Visible CPA model"}) {
+	if settings.Env["ANTHROPIC_BASE_URL"] != preview.BaseURL || len(settings.Env) != 1 || settings.Model != "visible" || len(settings.AvailableModels) != 1 || settings.AvailableModels[0] != "visible" || !settings.EnforceAvailableModels || !settings.ModelPicker.ReplaceBuiltInOptions || len(settings.ModelPicker.Options) != 1 || settings.ModelPicker.Options[0] != (claudePickerOption{Model: "visible", Label: "Visible CPA model"}) {
 		t.Fatalf("unexpected generated settings: %+v", settings)
 	}
 	if scan := scanClaude(m); scan.State != "ready" || !scan.CPAEndpoint {
@@ -65,6 +66,34 @@ func TestClaudeInitPreviewCreateAndScan(t *testing.T) {
 	still, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
 	if err != nil || string(still) != string(raw) {
 		t.Fatal("existing settings changed")
+	}
+}
+
+func TestClaudeInitReusesCPAAuthSourceWithoutWritingSecret(t *testing.T) {
+	m := claudeInitFixture(t)
+	m.Profiles.CPA.EnvKey = "TEST_CPA_CLAUDE_INIT_KEY"
+	t.Setenv(m.Profiles.CPA.EnvKey, "private-cpa-test-secret")
+	preview, err := InitClaudeSettings(m, m.Profiles.CPA.Endpoint, false, false, false)
+	if err != nil || !preview.AuthReady || !preview.HelperConfigured || preview.AuthSource != "env:TEST_CPA_CLAUDE_INIT_KEY:present" {
+		t.Fatalf("auth preview = %+v, %v", preview, err)
+	}
+	created, err := InitClaudeSettings(m, m.Profiles.CPA.Endpoint, true, true, true)
+	if err != nil || created.Action != "created" {
+		t.Fatalf("creation = %+v, %v", created, err)
+	}
+	raw, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "private-cpa-test-secret") {
+		t.Fatal("Claude settings contain the CPA credential")
+	}
+	var settings struct {
+		APIKeyHelper string `json:"apiKeyHelper"`
+		Model        string `json:"model"`
+	}
+	if err := json.Unmarshal(raw, &settings); err != nil || settings.APIKeyHelper != "printenv TEST_CPA_CLAUDE_INIT_KEY" || settings.Model != "visible" {
+		t.Fatalf("generated auth settings = %+v, %v", settings, err)
 	}
 }
 

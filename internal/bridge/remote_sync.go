@@ -53,10 +53,10 @@ func SyncRemote(m Manifest, target string, write bool) (RemoteSyncReport, error)
 				}
 			}
 		}
-		command := `"$HOME/.local/bin/bridge-go" --manifest "$HOME/.config/codex-cpa-bridge/bridge.toml" platforms plan --json`
-		output, err := remoteCommand(ctx, target, command, nil)
+		command := `"$HOME/.local/bin/bridge-go" --manifest "$HOME/.config/codex-cpa-bridge/bridge.toml" platforms plan --policy-stdin --json`
+		output, err := remoteCommand(ctx, target, command, encoded)
 		if err != nil {
-			return report, fmt.Errorf("remote platform plan failed: %w", err)
+			return report, fmt.Errorf("remote projected platform plan failed (update the remote bridge CLI if it does not support --policy-stdin): %w", err)
 		}
 		if err := json.Unmarshal(output, &report.Platforms); err != nil {
 			return report, errors.New("remote platform plan returned invalid JSON")

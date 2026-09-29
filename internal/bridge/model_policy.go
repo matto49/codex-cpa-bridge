@@ -89,18 +89,9 @@ func planModelPolicy(m Manifest, policy VisibilityPolicy) (ModelPolicyReport, []
 	if path == "" {
 		return report, nil, nil, errors.New("profiles.cpa.model_catalog_json is not configured")
 	}
-	if len(policy.Models) == 0 {
-		return report, nil, nil, errors.New("model visibility policy must not be empty")
-	}
-	wanted := make(map[string]string, len(policy.Models))
-	for _, entry := range policy.Models {
-		if entry.Slug == "" || entry.Visibility != "list" && entry.Visibility != "hide" {
-			return report, nil, nil, fmt.Errorf("invalid policy entry for %q", entry.Slug)
-		}
-		if _, duplicate := wanted[entry.Slug]; duplicate {
-			return report, nil, nil, fmt.Errorf("duplicate model policy for %q", entry.Slug)
-		}
-		wanted[entry.Slug] = entry.Visibility
+	wanted, err := validatedVisibilityPolicy(policy)
+	if err != nil {
+		return report, nil, nil, err
 	}
 	before, err := os.ReadFile(path)
 	if err != nil {
@@ -136,4 +127,21 @@ func planModelPolicy(m Manifest, policy VisibilityPolicy) (ModelPolicyReport, []
 	}
 	after, err := marshalModelCatalog(catalog)
 	return report, before, after, err
+}
+
+func validatedVisibilityPolicy(policy VisibilityPolicy) (map[string]string, error) {
+	if len(policy.Models) == 0 {
+		return nil, errors.New("model visibility policy must not be empty")
+	}
+	wanted := make(map[string]string, len(policy.Models))
+	for _, entry := range policy.Models {
+		if entry.Slug == "" || entry.Visibility != "list" && entry.Visibility != "hide" {
+			return nil, fmt.Errorf("invalid policy entry for %q", entry.Slug)
+		}
+		if _, duplicate := wanted[entry.Slug]; duplicate {
+			return nil, fmt.Errorf("duplicate model policy for %q", entry.Slug)
+		}
+		wanted[entry.Slug] = entry.Visibility
+	}
+	return wanted, nil
 }

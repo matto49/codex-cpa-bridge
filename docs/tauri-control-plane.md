@@ -22,7 +22,7 @@ The source catalog controls Codex visibility directly. Claude's allowlist, picke
 
 ## Remote target
 
-Settings accepts an existing SSH alias such as `devbox`. Check resolves the alias and verifies SSH, the remote bridge, and authenticated CPA health. Preview reports remote catalog visibility differences and models the remote CPA does not advertise. Apply refreshes the remote catalog, changes shared model visibility, and syncs remote platforms with backups. Missing remote models remain unavailable; they are never counted as synchronized. The UI does not install a remote bridge or provision remote credentials; use the CLI's `remote install` workflow for a new host.
+Settings accepts an existing SSH alias such as `devbox`. Check resolves the alias and verifies SSH, the remote bridge, and authenticated CPA health. Preview reports remote catalog visibility differences and models the remote CPA does not advertise. Its platform plan projects the shared model visibility after sync without modifying remote files; remote-only models stay as they are, and missing remote models are not projected until a refresh can add them. Apply refreshes the remote catalog, changes shared model visibility, and syncs remote platforms with backups. Missing remote models remain unavailable; they are never counted as synchronized. The UI does not install a remote bridge or provision remote credentials; use the CLI's `remote install` workflow for a new host.
 
 ## Operational limits
 

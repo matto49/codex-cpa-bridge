@@ -408,7 +408,12 @@ func run(argv []string) int {
 		fs := flag.NewFlagSet("platforms "+args[0], flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
 		jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+		policyStdin := fs.Bool("policy-stdin", false, "preview platform changes after a JSON visibility policy from stdin (plan only)")
 		if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+			return 2
+		}
+		if *policyStdin && args[0] != "plan" {
+			fmt.Fprintln(os.Stderr, "bridge platforms: --policy-stdin is only valid for plan")
 			return 2
 		}
 		if args[0] == "scan" {
@@ -430,7 +435,21 @@ func run(argv []string) int {
 		var report bridge.PlatformSyncReport
 		var err error
 		if args[0] == "plan" {
-			report, err = bridge.PlanPlatformSync(m)
+			if *policyStdin {
+				raw, readErr := io.ReadAll(io.LimitReader(os.Stdin, 10*1024*1024+1))
+				if readErr != nil || len(raw) > 10*1024*1024 {
+					fmt.Fprintln(os.Stderr, "bridge platforms plan: policy input exceeds 10 MiB or cannot be read")
+					return 1
+				}
+				var policy bridge.VisibilityPolicy
+				if err := json.Unmarshal(raw, &policy); err != nil {
+					fmt.Fprintf(os.Stderr, "bridge platforms plan: invalid policy JSON: %v\n", err)
+					return 1
+				}
+				report, err = bridge.PlanPlatformSyncWithPolicy(m, policy)
+			} else {
+				report, err = bridge.PlanPlatformSync(m)
+			}
 		} else {
 			report, err = bridge.SyncPlatformConfigs(m)
 		}

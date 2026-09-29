@@ -144,6 +144,45 @@ func TestPlatformSyncPreviewBackupAndIdempotence(t *testing.T) {
 	}
 }
 
+func TestPlatformSyncPreviewProjectsIncomingVisibilityWithoutWriting(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317")
+	beforeCatalog, err := os.ReadFile(m.Profiles.CPA.ModelCatalogJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeClaude, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeXbot, err := os.ReadFile(m.Platforms.XbotDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := VisibilityPolicy{Models: []VisibilityPolicyEntry{
+		{Slug: "gpt-6-sol", Visibility: "hide"},
+		{Slug: "gpt-5.5", Visibility: "list"},
+	}}
+	plan, err := PlanPlatformSyncWithPolicy(m, policy)
+	if err != nil || !plan.ProjectedPolicy {
+		t.Fatalf("projected plan failed: %+v, %v", plan, err)
+	}
+	if claude := syncItem(plan, "claude"); claude.Action != "update" || len(claude.Add) != 0 || len(claude.Remove) != 0 {
+		t.Fatalf("Claude plan did not use projected policy: %+v", claude)
+	}
+	if xbot := syncItem(plan, "xbot"); xbot.Action != "noop" {
+		t.Fatalf("xbot plan did not use projected policy: %+v", xbot)
+	}
+	afterCatalog, _ := os.ReadFile(m.Profiles.CPA.ModelCatalogJSON)
+	afterClaude, _ := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	afterXbot, _ := os.ReadFile(m.Platforms.XbotDatabase)
+	if !reflect.DeepEqual(afterCatalog, beforeCatalog) || !reflect.DeepEqual(afterClaude, beforeClaude) || !reflect.DeepEqual(afterXbot, beforeXbot) {
+		t.Fatal("projected preview changed local files")
+	}
+	if _, err := PlanPlatformSyncWithPolicy(m, VisibilityPolicy{Models: []VisibilityPolicyEntry{{Slug: "gpt-6-sol", Visibility: "hide"}, {Slug: "gpt-6-sol", Visibility: "list"}}}); err == nil {
+		t.Fatal("projected preview accepted duplicate policy entries")
+	}
+}
+
 func TestPlatformSyncPreservesUnrelatedClaude(t *testing.T) {
 	m := syncFixture(t, "https://other.example")
 	before, _ := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
@@ -317,7 +356,7 @@ func TestPlatformSyncRepairsOnlyClaudeURLWhenModelsAlreadyMatch(t *testing.T) {
 
 func TestPlatformSyncRejectsConcurrentConfigEdit(t *testing.T) {
 	m := syncFixture(t, "http://127.0.0.1:8317")
-	_, changes, err := buildPlatformSync(m)
+	_, changes, err := buildPlatformSync(m, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +370,7 @@ func TestPlatformSyncRejectsConcurrentConfigEdit(t *testing.T) {
 
 func TestXbotSyncRejectsConcurrentModelEdit(t *testing.T) {
 	m := syncFixture(t, "http://127.0.0.1:8317")
-	_, changes, err := buildPlatformSync(m)
+	_, changes, err := buildPlatformSync(m, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

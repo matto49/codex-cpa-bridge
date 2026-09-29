@@ -28,10 +28,11 @@ type PlatformSyncItem struct {
 }
 
 type PlatformSyncReport struct {
-	CatalogPath string             `json:"catalog_path"`
-	Items       []PlatformSyncItem `json:"items"`
-	Changed     int                `json:"changed"`
-	Failed      int                `json:"failed"`
+	CatalogPath     string             `json:"catalog_path"`
+	ProjectedPolicy bool               `json:"projected_policy,omitempty"`
+	Items           []PlatformSyncItem `json:"items"`
+	Changed         int                `json:"changed"`
+	Failed          int                `json:"failed"`
 }
 
 type platformChange struct {
@@ -45,12 +46,20 @@ type platformChange struct {
 // PlanPlatformSync is read-only. The Codex catalog is the desired visibility
 // policy; only a Claude settings file already pointed at this CPA is writable.
 func PlanPlatformSync(m Manifest) (PlatformSyncReport, error) {
-	report, _, err := buildPlatformSync(m)
+	report, _, err := buildPlatformSync(m, nil)
+	return report, err
+}
+
+// PlanPlatformSyncWithPolicy previews downstream platform changes after an
+// incoming visibility policy is applied to models shared with this host. The
+// catalog and all platform configuration remain untouched.
+func PlanPlatformSyncWithPolicy(m Manifest, policy VisibilityPolicy) (PlatformSyncReport, error) {
+	report, _, err := buildPlatformSync(m, &policy)
 	return report, err
 }
 
 func SyncPlatformConfigs(m Manifest) (PlatformSyncReport, error) {
-	report, changes, err := buildPlatformSync(m)
+	report, changes, err := buildPlatformSync(m, nil)
 	if err != nil {
 		return report, err
 	}
@@ -85,12 +94,23 @@ func SyncPlatformConfigs(m Manifest) (PlatformSyncReport, error) {
 	return report, nil
 }
 
-func buildPlatformSync(m Manifest) (PlatformSyncReport, map[string]platformChange, error) {
+func buildPlatformSync(m Manifest, projected *VisibilityPolicy) (PlatformSyncReport, map[string]platformChange, error) {
 	catalog, err := LoadModelCatalog(m)
 	if err != nil {
 		return PlatformSyncReport{}, nil, err
 	}
-	report := PlatformSyncReport{CatalogPath: catalog.Path}
+	report := PlatformSyncReport{CatalogPath: catalog.Path, ProjectedPolicy: projected != nil}
+	if projected != nil {
+		wanted, err := validatedVisibilityPolicy(*projected)
+		if err != nil {
+			return report, nil, err
+		}
+		for i := range catalog.Models {
+			if visibility, ok := wanted[catalog.Models[i].Slug]; ok {
+				catalog.Models[i].Visibility = visibility
+			}
+		}
+	}
 	changes := make(map[string]platformChange)
 	codex := scanCodex(m)
 	codexItem := PlatformSyncItem{ID: "codex", Path: codex.Path, RestartNeeded: codex.RestartNeeded}

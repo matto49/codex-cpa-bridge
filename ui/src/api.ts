@@ -62,7 +62,7 @@ export type PlatformSyncItem = {
   restart_needed: boolean;
 };
 
-export type PlatformSyncReport = { catalog_path: string; items: PlatformSyncItem[]; changed: number; failed: number };
+export type PlatformSyncReport = { catalog_path: string; projected_policy?: boolean; items: PlatformSyncItem[]; changed: number; failed: number };
 
 export type ClaudeInitReport = {
   path: string;

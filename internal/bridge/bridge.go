@@ -1517,18 +1517,20 @@ func runSSHProbe(m Manifest, timeout time.Duration) (bool, string) {
 	if m.SSH.CPA.User == "" {
 		return false, "ssh user is empty"
 	}
-	knownHosts, err := ensureKnownHost(m)
-	if err != nil {
-		return false, err.Error()
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	args := []string{
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=3",
-		"-o", "UserKnownHostsFile=" + knownHosts,
 		"-o", "StrictHostKeyChecking=yes",
 		"-p", strconv.Itoa(m.SSH.CPA.Port),
+	}
+	if m.SSH.CPA.Management != "external" {
+		knownHosts, err := ensureKnownHost(m)
+		if err != nil {
+			return false, err.Error()
+		}
+		args = append(args, "-o", "UserKnownHostsFile="+knownHosts)
 	}
 	if m.SSH.CPA.IdentityFile != "" {
 		args = append(args, "-i", m.SSH.CPA.IdentityFile)

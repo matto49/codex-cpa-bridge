@@ -27,11 +27,18 @@ export async function syncTargets(
   return outcome;
 }
 
+export function platformSyncSummary(report: PlatformSyncReport): string {
+  const skipped = report.items.filter((item) => (item.result ?? item.action) === "skipped").length;
+  const unlisted = report.items.reduce((count, item) => count + (item.unlisted?.length ?? 0), 0);
+  const summary = `${report.changed} updated, ${skipped} skipped, ${report.failed} blocked or failed`;
+  return unlisted ? `${summary}, ${unlisted} out-of-catalog ${unlisted === 1 ? "model" : "models"} preserved (review needed)` : summary;
+}
+
 export function syncSummary(outcome: SyncOutcome, catalogSaved: boolean): string {
   const parts = catalogSaved ? ["Catalog visibility saved."] : [];
-  if (outcome.local) parts.push(`Local: ${outcome.local.changed} updated, ${outcome.local.failed} blocked or failed.`);
+  if (outcome.local) parts.push(`Local: ${platformSyncSummary(outcome.local)}.`);
   else if (outcome.localError) parts.push("Local sync failed; review and retry it.");
-  if (outcome.remote) parts.push(`Remote: ${outcome.remote.detail}`);
+  if (outcome.remote) parts.push(`Remote (${outcome.remote.target}): ${outcome.remote.detail} Platform results: ${platformSyncSummary(outcome.remote.platforms)}.`);
   else if (outcome.remoteError) parts.push("Remote sync failed; review and retry it.");
   return parts.join(" ");
 }

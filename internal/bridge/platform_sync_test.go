@@ -124,13 +124,14 @@ func TestPlatformSyncPreviewBackupAndIdempotence(t *testing.T) {
 		Env                    map[string]string `json:"env"`
 		AvailableModels        []string          `json:"availableModels"`
 		EnforceAvailableModels bool              `json:"enforceAvailableModels"`
+		ModelPicker            claudeModelPicker `json:"modelPicker"`
 		Hooks                  map[string]int    `json:"hooks"`
 	}
 	updated, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
 	if err != nil || json.Unmarshal(updated, &settings) != nil {
 		t.Fatalf("invalid updated settings: %v", err)
 	}
-	if settings.Env["ANTHROPIC_AUTH_TOKEN"] != "secret-test" || !settings.EnforceAvailableModels || !reflect.DeepEqual(settings.AvailableModels, []string{"gpt-6-sol"}) || settings.Hooks["a"] != 1 {
+	if settings.Env["ANTHROPIC_AUTH_TOKEN"] != "secret-test" || !settings.EnforceAvailableModels || !reflect.DeepEqual(settings.AvailableModels, []string{"gpt-6-sol"}) || !settings.ModelPicker.ReplaceBuiltInOptions || !reflect.DeepEqual(settings.ModelPicker.Options, []claudePickerOption{{Model: "gpt-6-sol", Label: "gpt-6-sol"}}) || settings.Hooks["a"] != 1 {
 		t.Fatalf("settings not preserved: %+v", settings)
 	}
 	second, err := SyncPlatformConfigs(m)
@@ -140,6 +141,45 @@ func TestPlatformSyncPreviewBackupAndIdempotence(t *testing.T) {
 	serialized, _ := json.Marshal(result)
 	if strings.Contains(string(serialized), "secret-") {
 		t.Fatal("sync report leaked a credential")
+	}
+}
+
+func TestPlatformSyncPreviewProjectsIncomingVisibilityWithoutWriting(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317")
+	beforeCatalog, err := os.ReadFile(m.Profiles.CPA.ModelCatalogJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeClaude, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeXbot, err := os.ReadFile(m.Platforms.XbotDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := VisibilityPolicy{Models: []VisibilityPolicyEntry{
+		{Slug: "gpt-6-sol", Visibility: "hide"},
+		{Slug: "gpt-5.5", Visibility: "list"},
+	}}
+	plan, err := PlanPlatformSyncWithPolicy(m, policy)
+	if err != nil || !plan.ProjectedPolicy {
+		t.Fatalf("projected plan failed: %+v, %v", plan, err)
+	}
+	if claude := syncItem(plan, "claude"); claude.Action != "update" || len(claude.Add) != 0 || len(claude.Remove) != 0 {
+		t.Fatalf("Claude plan did not use projected policy: %+v", claude)
+	}
+	if xbot := syncItem(plan, "xbot"); xbot.Action != "noop" {
+		t.Fatalf("xbot plan did not use projected policy: %+v", xbot)
+	}
+	afterCatalog, _ := os.ReadFile(m.Profiles.CPA.ModelCatalogJSON)
+	afterClaude, _ := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	afterXbot, _ := os.ReadFile(m.Platforms.XbotDatabase)
+	if !reflect.DeepEqual(afterCatalog, beforeCatalog) || !reflect.DeepEqual(afterClaude, beforeClaude) || !reflect.DeepEqual(afterXbot, beforeXbot) {
+		t.Fatal("projected preview changed local files")
+	}
+	if _, err := PlanPlatformSyncWithPolicy(m, VisibilityPolicy{Models: []VisibilityPolicyEntry{{Slug: "gpt-6-sol", Visibility: "hide"}, {Slug: "gpt-6-sol", Visibility: "list"}}}); err == nil {
+		t.Fatal("projected preview accepted duplicate policy entries")
 	}
 }
 
@@ -156,6 +196,89 @@ func TestPlatformSyncPreservesUnrelatedClaude(t *testing.T) {
 	after, _ := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
 	if string(after) != string(before) {
 		t.Fatal("unrelated Claude settings changed")
+	}
+}
+
+func TestXbotPlanReportsEnabledModelsOutsideSourceCatalogWithoutChangingThem(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317")
+	if result, err := SyncPlatformConfigs(m); err != nil || syncItem(result, "xbot").Result != "updated" {
+		t.Fatalf("initial xbot sync failed: %+v, %v", result, err)
+	}
+	query := `INSERT INTO subscription_models(id,subscription_id,model,enabled) VALUES('extra-cpa','sub-cpa','xbot-only',1); INSERT INTO subscription_models(id,subscription_id,model,enabled) VALUES('extra-other','sub-other','other-only',1);`
+	if output, err := exec.Command("sqlite3", m.Platforms.XbotDatabase, query).CombinedOutput(); err != nil {
+		t.Fatalf("add out-of-catalog models: %v: %s", err, output)
+	}
+	plan, err := PlanPlatformSync(m)
+	xbot := syncItem(plan, "xbot")
+	if err != nil || xbot.Action != "noop" || !reflect.DeepEqual(xbot.Unlisted, []string{"xbot-only"}) {
+		t.Fatalf("enabled xbot-only model was not reported: %+v, %v", xbot, err)
+	}
+	if scan := scanXbot(m); scan.State != "drift" || !strings.Contains(scan.Detail, "outside the source catalog") {
+		t.Fatalf("xbot scan concealed out-of-catalog model: %+v", scan)
+	}
+	if result, err := SyncPlatformConfigs(m); err != nil || syncItem(result, "xbot").Result != "noop" {
+		t.Fatalf("unlisted model should not be changed implicitly: %+v, %v", result, err)
+	}
+	if _, err := SetModelVisibility(m, "gpt-5.5", "list"); err != nil {
+		t.Fatal(err)
+	}
+	plan, err = PlanPlatformSync(m)
+	xbot = syncItem(plan, "xbot")
+	if err != nil || xbot.Action != "update" || !reflect.DeepEqual(xbot.Unlisted, []string{"xbot-only"}) {
+		t.Fatalf("known update concealed out-of-catalog model: %+v, %v", xbot, err)
+	}
+	if result, err := SyncPlatformConfigs(m); err != nil || syncItem(result, "xbot").Result != "updated" {
+		t.Fatalf("known xbot model did not sync: %+v, %v", result, err)
+	}
+	var rows []struct {
+		Model   string `json:"model"`
+		Enabled int    `json:"enabled"`
+	}
+	if err := xbotQuery(m.Platforms.XbotDatabase, "SELECT model,enabled FROM subscription_models WHERE id IN ('extra-cpa','extra-other') ORDER BY id", &rows); err != nil || len(rows) != 2 || rows[0].Enabled != 1 || rows[1].Enabled != 1 {
+		t.Fatalf("out-of-catalog rows were changed: %+v, %v", rows, err)
+	}
+}
+
+func TestPlatformSyncMovesHiddenClaudeDefaultAndClearsHiddenPins(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317")
+	settings := `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8317","ANTHROPIC_AUTH_TOKEN":"secret-test","ANTHROPIC_MODEL":"gpt-5.5","ANTHROPIC_DEFAULT_OPUS_MODEL":"gpt-6-sol","CLAUDE_CODE_SUBAGENT_MODEL":"gpt-5.5","KEEP_ME":"yes"},"model":"gpt-5.5","availableModels":["gpt-6-sol"],"enforceAvailableModels":true,"hooks":{"a":1}}`
+	if err := os.WriteFile(m.Platforms.ClaudeSettingsJSON, []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanPlatformSync(m)
+	if err != nil || syncItem(plan, "claude").Action != "update" {
+		t.Fatalf("hidden Claude pins were not planned for repair: %+v, %v", plan, err)
+	}
+	result, err := SyncPlatformConfigs(m)
+	if err != nil || syncItem(result, "claude").Result != "updated" || syncItem(result, "claude").Backup == "" {
+		t.Fatalf("hidden Claude pins were not repaired: %+v, %v", result, err)
+	}
+	var updated struct {
+		Model string            `json:"model"`
+		Env   map[string]string `json:"env"`
+		Hooks map[string]int    `json:"hooks"`
+	}
+	raw, err := os.ReadFile(m.Platforms.ClaudeSettingsJSON)
+	if err != nil || json.Unmarshal(raw, &updated) != nil {
+		t.Fatalf("cannot read updated Claude settings: %v", err)
+	}
+	if updated.Model != "gpt-6-sol" || updated.Env["ANTHROPIC_MODEL"] != "" || updated.Env["CLAUDE_CODE_SUBAGENT_MODEL"] != "" || updated.Env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "gpt-6-sol" || updated.Env["ANTHROPIC_AUTH_TOKEN"] != "secret-test" || updated.Env["KEEP_ME"] != "yes" || updated.Hooks["a"] != 1 {
+		t.Fatalf("hidden pins remain or unrelated settings changed: %+v", updated)
+	}
+	second, err := PlanPlatformSync(m)
+	if err != nil || syncItem(second, "claude").Action != "noop" {
+		t.Fatalf("pin repair is not idempotent: %+v, %v", second, err)
+	}
+}
+
+func TestPlatformSyncBlocksClaudeWhenNoModelsVisible(t *testing.T) {
+	m := syncFixture(t, "http://127.0.0.1:8317")
+	if err := os.WriteFile(m.Profiles.CPA.ModelCatalogJSON, []byte(`{"models":[{"slug":"gpt-6-sol","visibility":"hide"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanPlatformSync(m)
+	if err != nil || syncItem(plan, "claude").Action != "blocked" || !strings.Contains(syncItem(plan, "claude").Detail, "at least one visible") {
+		t.Fatalf("all-hidden catalog was not handled safely: %+v, %v", plan, err)
 	}
 }
 
@@ -233,7 +356,7 @@ func TestPlatformSyncRepairsOnlyClaudeURLWhenModelsAlreadyMatch(t *testing.T) {
 
 func TestPlatformSyncRejectsConcurrentConfigEdit(t *testing.T) {
 	m := syncFixture(t, "http://127.0.0.1:8317")
-	_, changes, err := buildPlatformSync(m)
+	_, changes, err := buildPlatformSync(m, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +370,7 @@ func TestPlatformSyncRejectsConcurrentConfigEdit(t *testing.T) {
 
 func TestXbotSyncRejectsConcurrentModelEdit(t *testing.T) {
 	m := syncFixture(t, "http://127.0.0.1:8317")
-	_, changes, err := buildPlatformSync(m)
+	_, changes, err := buildPlatformSync(m, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

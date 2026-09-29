@@ -117,10 +117,31 @@ func scanClaude(m Manifest) PlatformReport {
 		return r
 	}
 	if !settings.EnforceAvailableModels {
-		r.State, r.Detail = "needs_setup", "Model restriction is not enabled"
+		r.State, r.Detail = "needs_setup", "Claude picker allowlist is not enabled"
 		return r
 	}
-	r.State, r.Detail = "ready", fmt.Sprintf("%d models allowed by Claude settings; runtime authentication and protocol not verified", len(settings.AvailableModels))
+	catalog, err := LoadModelCatalog(m)
+	if err != nil {
+		r.State, r.Detail = "needs_setup", "CPA model catalog cannot be read; repair it before checking Claude visibility"
+		return r
+	}
+	plan, _ := planClaudeSettings(path, m.Profiles.CPA.Endpoint, catalog.Models)
+	switch plan.Action {
+	case "noop":
+		// The plan checks the allowlist, picker, default model, and environment
+		// model pins against the same catalog used by platform sync.
+	case "update":
+		r.State, r.Detail = "drift", "Claude model settings differ from the CPA catalog; sync can repair the picker, allowlist, or hidden model pins"
+		return r
+	case "skipped":
+		r.State, r.Detail = "unrelated", plan.Detail
+		r.CPAEndpoint = false
+		return r
+	default:
+		r.State, r.Detail = "needs_setup", plan.Detail
+		return r
+	}
+	r.State, r.Detail = "ready", fmt.Sprintf("%d model IDs in Claude picker allowlist; explicit --model can still request others; runtime authentication and protocol not verified", len(settings.AvailableModels))
 	return r
 }
 
@@ -159,7 +180,34 @@ func scanXbot(m Manifest) PlatformReport {
 	}
 	r.CPAEndpoint = true
 	r.RestartNeeded = true
-	r.State, r.Detail = "ready", fmt.Sprintf("%d CPA subscription(s), %d model entries in xbot database; disabled models remain greyed out in xbot's picker", len(snapshot.subscriptions), len(snapshot.models))
+	catalog, err := LoadModelCatalog(m)
+	if err != nil {
+		r.State, r.Detail = "needs_setup", "CPA model catalog cannot be read; repair it before checking xbot visibility"
+		return r
+	}
+	plan, _ := planXbotSnapshot(m, catalog.Models, snapshot)
+	switch plan.Action {
+	case "noop":
+		// The subscription flags and preferred selections match the catalog.
+		if len(plan.Unlisted) > 0 {
+			r.State, r.Detail = "drift", fmt.Sprintf("%d enabled xbot model(s) are outside the source catalog and remain selectable; sync preserves them", len(plan.Unlisted))
+			return r
+		}
+	case "update":
+		r.State, r.Detail = "drift", "xbot subscription models differ from the CPA catalog; sync can repair them, but disabled models remain greyed out until xbot supports hiding them"
+		if len(plan.Unlisted) > 0 {
+			r.Detail += fmt.Sprintf("; %d enabled out-of-catalog model(s) will remain untouched", len(plan.Unlisted))
+		}
+		return r
+	case "skipped":
+		r.State, r.Detail = "unrelated", plan.Detail
+		r.CPAEndpoint = false
+		return r
+	default:
+		r.State, r.Detail = "needs_setup", plan.Detail
+		return r
+	}
+	r.State, r.Detail = "limited", fmt.Sprintf("%d CPA subscription(s), %d model entries in xbot database; disabled models remain greyed out in xbot's picker", len(snapshot.subscriptions), len(snapshot.models))
 	if !configCPA {
 		r.Detail += "; fallback config is separate and will be preserved"
 	}

@@ -3,3 +3,20 @@ ui-app.log
 .DS_Store
 bridge.toml
 .qa/
+
+# Local credentials, client state, and databases must never be published.
+.env
+.env.*
+!.env.example
+.codex/
+.codex-mac-cpa/
+.claude/
+.xbot/
+**/.config/cliproxyapi/
+*.pem
+*.p8
+*.p12
+*.key
+*.db
+*.sqlite
+*.sqlite3

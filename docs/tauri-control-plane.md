@@ -1,37 +1,34 @@
-# Tauri Control Plane Sketch
+# Desktop control plane
 
-Tauri is useful as a local dashboard, but it should not become the bridge runtime.
-The bridge core stays in Go so it can run headless on devbox, Mac, CI, and a plain SSH session.
+The macOS app is a local UI for `bridge-go`, not a second bridge implementation or a CPA daemon. Its Rust shell runs the Go CLI with a selected private manifest and parses its JSON reports. The Go CLI owns discovery, validation, backups, model policy, platform adapters, and SSH operations. CPA itself owns credentials, account pools, and model routing.
 
-## Boundary
+## Starting the app
 
-The UI may call the bridge CLI or a small local Go daemon. It must not parse CPA internals, own CPA
-credentials, or rewrite the official Codex profile.
+Build the CLI and app as described in the [README](../README.md#desktop-ui). On first launch, load a private manifest path in Settings. If no manifest exists, **Initialize from this Mac** creates one from an existing CPA-backed Codex profile; it does not create a CPA service or overwrite an existing manifest. To preview manifest discovery without writing, use `bridge init --json` in the CLI. A missing model catalog and missing Claude settings have separate preview/create controls.
 
-The UI displays and edits only bridge-owned state:
+The app finds `bridge-go` from `CODEX_CPA_BRIDGE_BIN`, next to the app executable, or at `~/.local/bin/bridge-go`, in that order. A missing CLI is shown as an error rather than silently falling back to sample data. Browser-only development previews use sample data and cannot write real configuration.
 
-- desired manifest values for official profile path, isolated CPA `CODEX_HOME`, CPA endpoint, model, and SSH endpoint
-- generated file install plan and ownership status
-- `doctor` results split into `policy_ok` and `bridge_ready`
-- loopback sshd state, recent bridge logs, and copyable remediation commands
+## Views and data flow
 
-## Suggested Shape
+| View | Read-only sources | Writes |
+| --- | --- | --- |
+| Overview | `status`, `doctor --json` | Setup/start/stop the bridge-owned loopback SSH endpoint; an external endpoint is verified, not stopped. |
+| Models | `models list --json`, `platforms plan --json` | `models set`, then local platform sync and optional remote sync. A separate Sync button retries without changing the catalog. |
+| Settings | `platforms scan --json`, `remote scan`, `remote sync` preview | Initialize a missing manifest/catalog/Claude file, explicitly adopt a different Claude provider, or apply remote sync after preview. |
 
-- `codex-cpa-bridge` Go CLI remains the source of truth.
-- Tauri invokes JSON-producing commands first: `status`, `doctor --json`, and later `plan --json`.
-- Mutating actions call explicit commands: `render --write`, `install --write`, `up`, `down`, `rollback --write`.
-- The UI never receives bearer tokens. Auth should remain referenced by `auth_command` or environment variable name.
+After a model toggle, the catalog write happens first. Local and configured remote sync then run independently: one target's failure does not suppress the other's result. The UI preserves each target's outcome and reports blocked/skipped platforms and backup paths. If the catalog write fails, sync does not start. Refreshing status never initializes or changes a config file.
 
-## First UI Views
+The source catalog controls Codex visibility directly. Claude's allowlist, picker, default, and environment model pins are compared with that catalog and synchronized only for settings already aimed at the chosen CPA endpoint. xbot's server-side model settings live in its SQLite subscription database, not just `config.json`; its adapter updates only matching CPA subscriptions. A disabled xbot model is still greyed out in xbot v0.0.52, so the app reports this as `limited`, not fully hidden. See [Ownership](../README.md#ownership) for the safety boundary.
 
-- Overview: official profile health, isolated CPA profile health, CPA black-box status, SSH status.
-- Profiles: compare official vs CPA paths and show whether the official active provider points at CPA.
-- SSH: install/start/stop loopback sshd and show the exact target string.
-- Models: list catalog entries and toggle `visibility` between `list` and `hide` through `bridge models`.
-- Logs: bridge-owned sshd stdout/stderr only.
+## Remote target
 
-## Go API
+Settings accepts an existing SSH alias such as `devbox`. Check resolves the alias and verifies SSH, the remote bridge, and authenticated CPA health. Preview reports remote catalog visibility differences and models the remote CPA does not advertise. Its platform plan projects the shared model visibility after sync without modifying remote files; remote-only models stay as they are, and missing remote models are not projected until a refresh can add them. Apply refreshes the remote catalog, changes shared model visibility, and syncs remote platforms with backups. Missing remote models remain unavailable; they are never counted as synchronized. The UI does not install a remote bridge or provision remote credentials; use the CLI's `remote install` workflow for a new host.
 
-The first UI version should consume `plan --json`, `doctor --json`, and `models list --json`, then call `setup`,
-`models set`, `up`, and `down` for writes. If shelling out becomes awkward, expose the same Go package through a
-tiny local daemon without changing the contracts.
+## Operational limits
+
+- Config-ready is not the same as a working Claude session. Verify Claude authentication and the Anthropic Messages endpoint separately; its picker allowlist does not prevent an explicit `--model` request.
+- Running Codex, Claude, and xbot sessions may need reconnect or refresh after a visibility change.
+- A source model absent from the remote CPA cannot be made available by copying its catalog entry.
+- The local `.app` build is unsigned. Signing, notarization, and clean-machine installation have not been verified.
+
+For headless use, automation, and complete command flags, use the [CLI commands](../README.md#commands). Do not put tokens in the manifest, CLI arguments, or screenshots.

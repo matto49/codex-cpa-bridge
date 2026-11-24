@@ -33,6 +33,13 @@ func TestRefreshModelCatalogAddsModelsAndPreservesVisibility(t *testing.T) {
 	if err := os.WriteFile(m.Profiles.CPA.ModelCatalogJSON, []byte(before), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	preview, err := PreviewModelCatalogRefresh(m)
+	if err != nil || preview.Written || preview.Backup != "" || len(preview.Added) != 1 || preview.Added[0] != "gpt-6-sol" {
+		t.Fatalf("refresh preview: %+v %v", preview, err)
+	}
+	if raw, err := os.ReadFile(m.Profiles.CPA.ModelCatalogJSON); err != nil || string(raw) != before {
+		t.Fatalf("refresh preview changed catalog: %v", err)
+	}
 	result, err := RefreshModelCatalog(m)
 	if err != nil || !result.Written || len(result.Added) != 1 || result.Added[0] != "gpt-6-sol" || result.Backup == "" {
 		t.Fatalf("refresh: %+v %v", result, err)

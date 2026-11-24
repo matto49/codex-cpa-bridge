@@ -30,8 +30,15 @@ type RemoteReport struct {
 }
 
 const remoteProbeScript = `printf 'home=%s\n' "$HOME"
-if [ -n "${CODEX_HOME:-}" ]; then printf 'codex_home=%s\n' "$CODEX_HOME"; else printf 'codex_home=%s\n' "$HOME/.codex-cpa"; fi
-if [ -f "${CODEX_HOME:-$HOME/.codex-cpa}/config.toml" ]; then printf 'codex_config=present\n'; else printf 'codex_config=missing\n'; fi
+codex_home="${CODEX_HOME:-}"
+if [ -z "$codex_home" ]; then
+  for candidate in "$HOME/.codex-mac-cpa" "$HOME/.codex-cpa" "$HOME/.codex"; do
+    if [ -f "$candidate/config.toml" ]; then codex_home="$candidate"; break; fi
+  done
+fi
+if [ -z "$codex_home" ]; then codex_home="$HOME/.codex-cpa"; fi
+printf 'codex_home=%s\n' "$codex_home"
+if [ -f "$codex_home/config.toml" ]; then printf 'codex_config=present\n'; else printf 'codex_config=missing\n'; fi
 if [ -x "$HOME/.local/bin/bridge-go" ] || command -v bridge-go >/dev/null 2>&1; then printf 'bridge=present\n'; else printf 'bridge=missing\n'; fi
 if [ -f "$HOME/.config/codex-cpa-bridge/bridge.toml" ]; then printf 'manifest=present\n'; else printf 'manifest=missing\n'; fi
 if command -v curl >/dev/null 2>&1; then curl -sS -m 3 -o /dev/null -w 'cpa_http=%{http_code}\n' http://127.0.0.1:8317/v1/models 2>/dev/null || printf 'cpa_http=unreachable\n'; else printf 'cpa_http=unavailable\n'; fi`
@@ -95,10 +102,7 @@ func ScanRemote(target string) (RemoteReport, error) {
 	}
 	if report.BridgeInstalled && report.ManifestPresent {
 		if doctor, err := remoteDoctor(ctx, target); err == nil {
-			report.RemoteDoctorOK = doctor.Result.BridgeReady
-			report.RemoteDoctorIssues = doctor.Result.Issues
-			report.CPAHTTPStatus = doctor.CPABlackbox.ModelsStatus
-			report.Ready = doctor.Result.BridgeReady
+			report.applyDoctor(doctor)
 		}
 	}
 	if report.Ready {
@@ -109,6 +113,19 @@ func ScanRemote(target string) (RemoteReport, error) {
 		report.Detail = "Remote installation or authenticated CPA verification is incomplete"
 	}
 	return report, nil
+}
+
+func (report *RemoteReport) applyDoctor(doctor DoctorReport) {
+	// The shell probe can only guess before installation. Once a manifest and
+	// doctor are available, use the profile the bridge actually validated.
+	if doctor.CPAProfile.Home != "" {
+		report.RemoteCodexHome = doctor.CPAProfile.Home
+		report.CodexConfigPresent = doctor.CPAProfile.ConfigPresent
+	}
+	report.RemoteDoctorOK = doctor.Result.BridgeReady
+	report.RemoteDoctorIssues = doctor.Result.Issues
+	report.CPAHTTPStatus = doctor.CPABlackbox.ModelsStatus
+	report.Ready = doctor.Result.BridgeReady
 }
 
 func remoteDoctor(ctx context.Context, target string) (DoctorReport, error) {

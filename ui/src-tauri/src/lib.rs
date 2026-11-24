@@ -106,6 +106,16 @@ fn bridge_claude_init(manifest: String, base_url: String, confirm_protocol: bool
 }
 
 #[tauri::command]
+fn bridge_claude_adopt(manifest: String, base_url: String, confirm_protocol: bool, confirm_replace: bool, write: bool) -> Result<Value, String> {
+    let mut args = vec!["platforms", "adopt-claude", "--base-url", base_url.as_str()];
+    if confirm_protocol { args.push("--confirm-anthropic-compatible"); }
+    if confirm_replace { args.push("--confirm-replace-provider"); }
+    if write { args.push("--write"); }
+    args.push("--json");
+    run_json(&manifest, &args)
+}
+
+#[tauri::command]
 fn bridge_init(manifest: String) -> Result<Value, String> { run_json(&manifest, &["init", "--write", "--json"]) }
 
 #[tauri::command]
@@ -121,6 +131,16 @@ fn bridge_remote_plan(manifest: String, target: String) -> Result<Value, String>
 #[tauri::command]
 fn bridge_remote_sync(manifest: String, target: String) -> Result<Value, String> {
     run_json(&manifest, &["remote", "sync", "--target", &target, "--write", "--json"])
+}
+
+#[tauri::command]
+fn bridge_remote_claude(manifest: String, target: String, mode: String, write: bool, confirm_protocol: bool, confirm_second: bool) -> Result<Value, String> {
+    let mut args = vec!["remote", "claude", "--target", target.as_str(), "--mode", mode.as_str()];
+    if write { args.push("--write"); }
+    if confirm_protocol { args.push("--confirm-anthropic-compatible"); }
+    if confirm_second { args.push(if mode == "adopt" { "--confirm-replace-provider" } else { "--confirm-external-auth" }); }
+    args.push("--json");
+    run_json(&manifest, &args)
 }
 
 #[tauri::command]
@@ -171,7 +191,7 @@ pub fn run() {
                 eprintln!("ui probe dispatch failed: {error}");
             }
         })
-        .invoke_handler(tauri::generate_handler![bridge_status, bridge_doctor, bridge_models, bridge_catalog_bootstrap, bridge_platforms, bridge_platform_plan, bridge_platform_sync, bridge_claude_init, bridge_init, bridge_remote_scan, bridge_remote_plan, bridge_remote_sync, bridge_set_model, bridge_action])
+        .invoke_handler(tauri::generate_handler![bridge_status, bridge_doctor, bridge_models, bridge_catalog_bootstrap, bridge_platforms, bridge_platform_plan, bridge_platform_sync, bridge_claude_init, bridge_claude_adopt, bridge_init, bridge_remote_scan, bridge_remote_plan, bridge_remote_sync, bridge_remote_claude, bridge_set_model, bridge_action])
         .run(tauri::generate_context!())
         .expect("error while running Codex CPA Bridge");
 }

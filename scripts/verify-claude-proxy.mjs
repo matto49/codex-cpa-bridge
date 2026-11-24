@@ -11,7 +11,10 @@ import { fileURLToPath } from 'node:url';
 
 const claudeBinary = process.argv[2] || 'claude';
 const bridgeBinary = process.argv[3] || join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'bridge-go');
-const model = 'claude-sonnet-4-6';
+const model = process.argv[4] || 'claude-sonnet-4-6';
+const checkHidden = process.env.BRIDGE_CLAUDE_TEST_HIDDEN === '1';
+const checkPicker = process.env.BRIDGE_CLAUDE_TEST_PICKER === '1';
+const fallbackModel = model === 'claude-sonnet-4-6' ? 'claude-opus-4-6-thinking' : 'claude-sonnet-4-6';
 const fakeKey = 'bridge-isolated-test-key';
 const temporary = await mkdtemp(join(tmpdir(), 'bridge-claude-proxy-'));
 let messagesSeen = 0;
@@ -68,7 +71,11 @@ try {
   const manifestPath = join(temporary, 'bridge.toml');
   const catalogPath = join(temporary, 'catalog.json');
   const settingsPath = join(temporary, 'claude', 'settings.json');
-  await writeFile(catalogPath, JSON.stringify({ models: [{ slug: model, visibility: 'list' }, { slug: 'hidden-model', visibility: 'hide' }] }), { mode: 0o600 });
+  await writeFile(join(temporary, '.claude.json'), JSON.stringify({ hasCompletedOnboarding: true, lastOnboardingVersion: '2.0.24' }), { mode: 0o600 });
+  const catalogModels = [{ slug: model, display_name: 'Bridge test target', visibility: 'list' }];
+  if (checkHidden) catalogModels.push({ slug: fallbackModel, visibility: 'list' });
+  catalogModels.push({ slug: 'hidden-model', visibility: 'hide' });
+  await writeFile(catalogPath, JSON.stringify({ models: catalogModels }), { mode: 0o600 });
   await writeFile(manifestPath, [
     '[profiles.cpa]',
     `endpoint = ${JSON.stringify(`${origin}/v1`)}`,
@@ -83,30 +90,48 @@ try {
   ], { encoding: 'utf8', env: { ...process.env, HOME: temporary } }));
   const settings = JSON.parse(await readFile(settingsPath, 'utf8'));
   const settingsMode = (await stat(settingsPath)).mode & 0o777;
-  if (initReport.action !== 'created' || initReport.base_url !== origin || settingsMode !== 0o600 || settings.env?.ANTHROPIC_BASE_URL !== origin || !settings.enforceAvailableModels || JSON.stringify(settings.availableModels) !== JSON.stringify([model])) {
+  const expectedModels = checkHidden ? [model, fallbackModel] : [model];
+  if (initReport.action !== 'created' || initReport.base_url !== origin || settingsMode !== 0o600 || settings.env?.ANTHROPIC_BASE_URL !== origin || !settings.enforceAvailableModels || !Array.isArray(settings.availableModels) || settings.availableModels.length !== expectedModels.length || expectedModels.some((id) => !settings.availableModels.includes(id)) || settings.modelPicker?.replaceBuiltInOptions !== true || expectedModels.some((id) => !settings.modelPicker.options?.some((option) => option.model === id)) || settings.modelPicker.options.length !== expectedModels.length) {
     throw new Error('bridge did not create the expected private Claude settings');
   }
-  const output = await new Promise((resolve, reject) => {
-    const started = Date.now();
-    const environment = {
-      ...process.env, HOME: temporary, XDG_CONFIG_HOME: temporary,
-      CLAUDE_CONFIG_DIR: temporary, DISABLE_TELEMETRY: '1',
+  const isolatedEnvironment = () => {
+    return {
+      PATH: process.env.PATH || '/usr/bin:/bin',
+      LANG: process.env.LANG || 'en_US.UTF-8',
+      TERM: process.env.TERM || 'xterm-256color',
+      HOME: temporary, XDG_CONFIG_HOME: temporary, CLAUDE_CONFIG_DIR: temporary,
+      ANTHROPIC_AUTH_TOKEN: fakeKey,
+      DISABLE_TELEMETRY: '1',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     };
-    for (const key of Object.keys(environment)) {
-      if (/^(ANTHROPIC|CLAUDE_CODE).*(_KEY|_TOKEN|_SECRET)$/i.test(key) || /^CLAUDE_CODE_USE_(BEDROCK|VERTEX|FOUNDRY)$/.test(key)) {
-        delete environment[key];
-      }
-    }
-    delete environment.ANTHROPIC_BASE_URL; // The CLI must read the bridge-created --settings file.
-    environment.ANTHROPIC_API_KEY = fakeKey;
+  };
+  const runPicker = () => new Promise((resolve, reject) => {
+    const helper = join(dirname(fileURLToPath(import.meta.url)), 'claude-picker-pty.py');
+    const child = spawn('python3', [helper, claudeBinary,
+      '--bare', '--restricted', '--strict-mcp-config',
+      '--tools', '', '--settings', settingsPath,
+    ], { cwd: temporary, env: isolatedEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] });
+    let output = '';
+    let errorOutput = '';
+    const kill = setTimeout(() => child.kill('SIGTERM'), 18000);
+    child.stdout.on('data', (chunk) => { output = (output + chunk.toString()).slice(-1024 * 1024); });
+    child.stderr.on('data', (chunk) => { errorOutput = (errorOutput + chunk.toString()).slice(-4096); });
+    child.on('error', (error) => { clearTimeout(kill); reject(error); });
+    child.on('exit', (code, signal) => {
+      clearTimeout(kill);
+      if (code !== 0) { reject(new Error(`Claude picker PTY failed code=${code} signal=${signal}: ${errorOutput}`)); return; }
+      resolve(output.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ''));
+    });
+  });
+  const runClaude = () => new Promise((resolve, reject) => {
+    const started = Date.now();
     const child = spawn(claudeBinary, [
       '--bare', '--restricted', '--no-session-persistence', '--strict-mcp-config',
       '--tools', '', '--model', model, '--settings', settingsPath,
       '--max-budget-usd', '0.01', '-p', '--output-format', 'json', 'Reply with exactly OK.',
     ], {
       cwd: temporary,
-      env: environment,
+      env: isolatedEnvironment(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -117,15 +142,54 @@ try {
     child.on('error', (error) => { clearTimeout(timer); reject(error); });
     child.on('exit', (code, signal) => {
       clearTimeout(timer);
-      if (code !== 0) reject(new Error(`Claude CLI exited code=${code} signal=${signal} elapsed_ms=${Date.now() - started} messages=${messagesSeen} paths=${JSON.stringify(pathsSeen)} stdout_bytes=${stdout.length}; stderr: ${stderr.slice(-600)}`));
-      else resolve(stdout);
+      resolve({ code, signal, elapsedMs: Date.now() - started, stdout, stderr });
     });
   });
-  const result = JSON.parse(output);
+  const pickerBefore = checkPicker ? await runPicker() : '';
+  if (checkPicker && process.env.BRIDGE_CLAUDE_TEST_PICKER_DEBUG === '1') process.stderr.write(pickerBefore.slice(-5000));
+  const firstRun = await runClaude();
+  if (firstRun.code !== 0) {
+    throw new Error(`Claude CLI exited code=${firstRun.code} signal=${firstRun.signal} elapsed_ms=${firstRun.elapsedMs} messages=${messagesSeen} paths=${JSON.stringify(pathsSeen)} stdout_bytes=${firstRun.stdout.length}; stderr: ${firstRun.stderr.slice(-600)}`);
+  }
+  const result = JSON.parse(firstRun.stdout);
   if (result.is_error || result.result?.trim() !== 'OK.' || messagesSeen < 1 || !authenticated || !modelMatched) {
     throw new Error(`Claude proxy verification failed: result=${result.result?.slice(0, 80)}, messages=${messagesSeen}, authenticated=${authenticated}, modelMatched=${modelMatched}`);
   }
-  console.log(JSON.stringify({ bridgeSettingsCreated: true, cliResponded: true, localMessages: messagesSeen, authenticatedWithTestKey: true, modelMatched: true, userSettingsUntouched: true }));
+  const report = { model, bridgeSettingsCreated: true, cliResponded: true, localMessages: messagesSeen, authenticatedWithTestKey: true, modelMatched: true, userSettingsUntouched: true };
+  if (checkPicker) {
+    const compactPicker = pickerBefore.replace(/\s+/g, '');
+    report.visibleModelInPicker = compactPicker.includes('Selectmodel') && compactPicker.includes('Bridgetesttarget');
+    if (!report.visibleModelInPicker) throw new Error('visible non-Claude CPA model was not present in the interactive /model picker');
+  }
+  if (checkHidden) {
+    execFileSync(bridgeBinary, ['--manifest', manifestPath, 'models', 'set', '--slug', model, '--visibility', 'hide'], { encoding: 'utf8', env: { ...process.env, HOME: temporary } });
+    let syncOutput;
+    try {
+      syncOutput = execFileSync(bridgeBinary, ['--manifest', manifestPath, 'platforms', 'sync', '--json'], { encoding: 'utf8', env: { ...process.env, HOME: temporary } });
+    } catch (error) {
+      syncOutput = error.stdout?.toString(); // Other isolated platforms may be blocked.
+      if (!syncOutput) throw error;
+    }
+    const syncReport = JSON.parse(syncOutput);
+    const claudeResult = syncReport.items.find((item) => item.id === 'claude');
+    const hiddenSettings = JSON.parse(await readFile(settingsPath, 'utf8'));
+    if (claudeResult?.result !== 'updated' || hiddenSettings.availableModels.includes(model) || !hiddenSettings.availableModels.includes(fallbackModel) || hiddenSettings.modelPicker.options.some((option) => option.model === model) || !hiddenSettings.modelPicker.options.some((option) => option.model === fallbackModel)) {
+      throw new Error('bridge did not remove the hidden model from private Claude settings');
+    }
+    const beforeHiddenRun = messagesSeen;
+    const hiddenRun = await runClaude();
+    report.hiddenModelRemovedFromSettings = true;
+    report.explicitHiddenModelReachedMock = messagesSeen > beforeHiddenRun;
+    report.explicitHiddenModelExitCode = hiddenRun.code;
+    if (checkPicker) {
+      const pickerAfter = await runPicker();
+      if (process.env.BRIDGE_CLAUDE_TEST_PICKER_DEBUG === '1') process.stderr.write(pickerAfter.slice(-5000));
+      const compactPicker = pickerAfter.replace(/\s+/g, '');
+      report.hiddenModelAbsentFromPicker = compactPicker.includes('Selectmodel') && !compactPicker.includes('Bridgetesttarget');
+      if (!report.hiddenModelAbsentFromPicker) throw new Error('hidden CPA model remained in the interactive /model picker');
+    }
+  }
+  console.log(JSON.stringify(report));
 } finally {
   server.close();
   await rm(temporary, { recursive: true, force: true });

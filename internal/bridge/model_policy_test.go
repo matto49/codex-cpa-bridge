@@ -11,13 +11,13 @@ import (
 func TestModelPolicyPreviewApplyAndIdempotence(t *testing.T) {
 	m := testManifest(t)
 	m.Profiles.CPA.ModelCatalogJSON = filepath.Join(t.TempDir(), "models.json")
-	before := `{"custom":{"keep":true},"models":[{"slug":"alpha","visibility":"list","priority":1},{"slug":"beta","visibility":"hide","priority":2}]}`
+	before := `{"custom":{"keep":true},"models":[{"slug":"alpha","visibility":"list","priority":1},{"slug":"beta","visibility":"hide","priority":2},{"slug":"extra-visible","visibility":"list"},{"slug":"extra-hidden","visibility":"hide"}]}`
 	if err := os.WriteFile(m.Profiles.CPA.ModelCatalogJSON, []byte(before), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	policy := VisibilityPolicy{Models: []VisibilityPolicyEntry{{Slug: "alpha", Visibility: "hide"}, {Slug: "beta", Visibility: "list"}, {Slug: "remote-only", Visibility: "hide"}}}
 	plan, err := PlanModelPolicy(m, policy)
-	if err != nil || len(plan.Changes) != 2 || !reflect.DeepEqual(plan.Missing, []string{"remote-only"}) {
+	if err != nil || !plan.ExtraVisibleChecked || len(plan.Changes) != 2 || !reflect.DeepEqual(plan.Missing, []string{"remote-only"}) || !reflect.DeepEqual(plan.ExtraVisible, []string{"extra-visible"}) {
 		t.Fatalf("unexpected plan: %+v %v", plan, err)
 	}
 	stillBefore, _ := os.ReadFile(m.Profiles.CPA.ModelCatalogJSON)
@@ -25,7 +25,7 @@ func TestModelPolicyPreviewApplyAndIdempotence(t *testing.T) {
 		t.Fatal("policy preview mutated catalog")
 	}
 	applied, err := ApplyModelPolicy(m, policy)
-	if err != nil || !applied.Applied || applied.Backup == "" {
+	if err != nil || !applied.Applied || applied.Backup == "" || !reflect.DeepEqual(applied.ExtraVisible, []string{"extra-visible"}) {
 		t.Fatalf("policy apply: %+v %v", applied, err)
 	}
 	backup, _ := os.ReadFile(applied.Backup)
@@ -33,11 +33,11 @@ func TestModelPolicyPreviewApplyAndIdempotence(t *testing.T) {
 		t.Fatal("policy backup does not contain previous catalog")
 	}
 	after, _ := os.ReadFile(m.Profiles.CPA.ModelCatalogJSON)
-	if !strings.Contains(string(after), `"custom"`) {
+	if !strings.Contains(string(after), `"custom"`) || !strings.Contains(string(after), `"extra-visible"`) || !strings.Contains(string(after), `"extra-hidden"`) {
 		t.Fatal("policy lost unrelated catalog metadata")
 	}
 	second, err := ApplyModelPolicy(m, policy)
-	if err != nil || second.Applied || len(second.Changes) != 0 {
+	if err != nil || second.Applied || len(second.Changes) != 0 || !reflect.DeepEqual(second.ExtraVisible, []string{"extra-visible"}) {
 		t.Fatalf("policy apply was not idempotent: %+v %v", second, err)
 	}
 }

@@ -40,9 +40,16 @@ func NewSocks5Server(listenAddr string, dialTimeout, keepAlive time.Duration, lo
 }
 
 func (s *Socks5Server) ListenAndServe() error {
+	if err := validateSocks5ListenAddr(s.ListenAddr); err != nil {
+		return err
+	}
 	ln, err := net.Listen("tcp", s.ListenAddr)
 	if err != nil {
 		return fmt.Errorf("socks5 listen on %s failed: %w", s.ListenAddr, err)
+	}
+	if bound, ok := ln.Addr().(*net.TCPAddr); !ok || !bound.IP.IsLoopback() {
+		_ = ln.Close()
+		return errors.New("SOCKS5 has no authentication; resolved listen address is not loopback")
 	}
 	s.listener = ln
 	s.Logger.Printf("SOCKS5 server listening on %s", ln.Addr().String())
@@ -59,6 +66,20 @@ func (s *Socks5Server) ListenAndServe() error {
 		go s.handleConn(conn)
 	}
 	return nil
+}
+
+func validateSocks5ListenAddr(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("invalid SOCKS5 listen address: %w", err)
+	}
+	if host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return errors.New("SOCKS5 has no authentication; listen address must use localhost or a loopback IP")
 }
 
 func (s *Socks5Server) Close() error {
@@ -85,6 +106,17 @@ func (s *Socks5Server) handleConn(c net.Conn) {
 		return
 	}
 	if _, err := io.ReadFull(c, buf[:nmethods]); err != nil {
+		return
+	}
+	noAuthOffered := false
+	for _, method := range buf[:nmethods] {
+		if method == 0x00 {
+			noAuthOffered = true
+			break
+		}
+	}
+	if !noAuthOffered {
+		_, _ = c.Write([]byte{0x05, 0xff})
 		return
 	}
 	// Reply: version 5, no authentication (0x00)

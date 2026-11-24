@@ -403,7 +403,7 @@ fi
 exit 77
 `)
 	t.Setenv("TEST_CPA_HOME", m.Profiles.CPA.Home)
-	ok, home := runSSHProbe(m, time.Second)
+	ok, home := runSSHProbe(m, 5*time.Second)
 	if !ok || home != m.Profiles.CPA.Home {
 		t.Fatalf("probe = %t, %q; want CPA home %q", ok, home, m.Profiles.CPA.Home)
 	}
@@ -420,9 +420,57 @@ fi
 printf '%s\n' "$TEST_CPA_HOME"
 `)
 	t.Setenv("TEST_CPA_HOME", m.Profiles.CPA.Home)
-	ok, home := runSSHProbe(m, time.Second)
+	ok, home := runSSHProbe(m, 5*time.Second)
 	if !ok || home != m.Profiles.CPA.Home {
 		t.Fatalf("probe = %t, %q; want CPA home %q", ok, home, m.Profiles.CPA.Home)
+	}
+}
+
+func TestExternalSSHProbeUsesUserTrustWithoutRewritingBridgeKnownHosts(t *testing.T) {
+	m := testManifest(t)
+	m.SSH.CPA.Management = "external"
+	prepareFakeSSHProbe(t, m, `
+for arg do
+  case "$arg" in UserKnownHostsFile=*) exit 88 ;; esac
+done
+printf '%s\n' "$TEST_CPA_HOME"
+`)
+	knownHosts := filepath.Join(m.Runtime.StateDir, "ssh", "known_hosts")
+	previous := []byte("previously pinned bridge key\n")
+	if err := os.WriteFile(knownHosts, previous, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_CPA_HOME", m.Profiles.CPA.Home)
+	ok, home := runSSHProbe(m, 5*time.Second)
+	if !ok || home != m.Profiles.CPA.Home {
+		t.Fatalf("external probe = %t, %q", ok, home)
+	}
+	after, err := os.ReadFile(knownHosts)
+	if err != nil || !bytes.Equal(after, previous) {
+		t.Fatalf("external probe changed bridge-owned trust: %v", err)
+	}
+}
+
+func TestManagedSSHProbePinsBridgeHostKey(t *testing.T) {
+	m := testManifest(t)
+	m.SSH.CPA.Management = "managed"
+	prepareFakeSSHProbe(t, m, `
+found=0
+for arg do
+  case "$arg" in UserKnownHostsFile=*) found=1 ;; esac
+done
+[ "$found" -eq 1 ] || exit 88
+printf '%s\n' "$TEST_CPA_HOME"
+`)
+	t.Setenv("TEST_CPA_HOME", m.Profiles.CPA.Home)
+	ok, home := runSSHProbe(m, 5*time.Second)
+	if !ok || home != m.Profiles.CPA.Home {
+		t.Fatalf("managed probe = %t, %q", ok, home)
+	}
+	knownHosts := filepath.Join(m.Runtime.StateDir, "ssh", "known_hosts")
+	raw, err := os.ReadFile(knownHosts)
+	if err != nil || !bytes.Contains(raw, []byte("ssh-ed25519 TESTKEY")) {
+		t.Fatalf("managed host key not pinned: %v", err)
 	}
 }
 

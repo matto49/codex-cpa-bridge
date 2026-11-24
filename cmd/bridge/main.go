@@ -250,11 +250,18 @@ func run(argv []string) int {
 		case "refresh":
 			fs := flag.NewFlagSet("models refresh", flag.ContinueOnError)
 			fs.SetOutput(os.Stderr)
+			dryRun := fs.Bool("dry-run", false, "preview new CPA models without writing")
 			jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 			if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
 				return 2
 			}
-			report, err := bridge.RefreshModelCatalog(m)
+			var report bridge.CatalogRefreshReport
+			var err error
+			if *dryRun {
+				report, err = bridge.PreviewModelCatalogRefresh(m)
+			} else {
+				report, err = bridge.RefreshModelCatalog(m)
+			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "bridge models refresh: %v\n", err)
 				return 1
@@ -350,6 +357,28 @@ func run(argv []string) int {
 		}
 
 	case "platforms":
+		if len(args) > 0 && args[0] == "adopt-claude" {
+			fs := flag.NewFlagSet("platforms adopt-claude", flag.ContinueOnError)
+			fs.SetOutput(os.Stderr)
+			baseURL := fs.String("base-url", "", "Anthropic-compatible URL on the configured CPA endpoint")
+			confirmProtocol := fs.Bool("confirm-anthropic-compatible", false, "confirm this endpoint supports Claude's Anthropic API")
+			confirmReplace := fs.Bool("confirm-replace-provider", false, "confirm replacement of the existing Claude provider")
+			write := fs.Bool("write", false, "back up and switch existing Claude settings.json to CPA")
+			jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+			if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+				return 2
+			}
+			report, err := bridge.AdoptClaudeSettings(m, *baseURL, *confirmProtocol, *confirmReplace, *write)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bridge platforms adopt-claude: %v\n", err)
+				return 1
+			}
+			if *jsonOut {
+				return printJSON(report)
+			}
+			fmt.Printf("%s Claude settings %s with %d visible models — %s\n", report.Action, report.Path, report.VisibleModels, report.Detail)
+			return 0
+		}
 		if len(args) > 0 && args[0] == "init-claude" {
 			fs := flag.NewFlagSet("platforms init-claude", flag.ContinueOnError)
 			fs.SetOutput(os.Stderr)
@@ -373,13 +402,18 @@ func run(argv []string) int {
 			return 0
 		}
 		if len(args) == 0 || (args[0] != "scan" && args[0] != "plan" && args[0] != "sync") {
-			fmt.Fprintln(os.Stderr, "bridge platforms: expected scan, plan, sync or init-claude")
+			fmt.Fprintln(os.Stderr, "bridge platforms: expected scan, plan, sync, init-claude or adopt-claude")
 			return 2
 		}
 		fs := flag.NewFlagSet("platforms "+args[0], flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
 		jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+		policyStdin := fs.Bool("policy-stdin", false, "preview platform changes after a JSON visibility policy from stdin (plan only)")
 		if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+			return 2
+		}
+		if *policyStdin && args[0] != "plan" {
+			fmt.Fprintln(os.Stderr, "bridge platforms: --policy-stdin is only valid for plan")
 			return 2
 		}
 		if args[0] == "scan" {
@@ -401,7 +435,21 @@ func run(argv []string) int {
 		var report bridge.PlatformSyncReport
 		var err error
 		if args[0] == "plan" {
-			report, err = bridge.PlanPlatformSync(m)
+			if *policyStdin {
+				raw, readErr := io.ReadAll(io.LimitReader(os.Stdin, 10*1024*1024+1))
+				if readErr != nil || len(raw) > 10*1024*1024 {
+					fmt.Fprintln(os.Stderr, "bridge platforms plan: policy input exceeds 10 MiB or cannot be read")
+					return 1
+				}
+				var policy bridge.VisibilityPolicy
+				if err := json.Unmarshal(raw, &policy); err != nil {
+					fmt.Fprintf(os.Stderr, "bridge platforms plan: invalid policy JSON: %v\n", err)
+					return 1
+				}
+				report, err = bridge.PlanPlatformSyncWithPolicy(m, policy)
+			} else {
+				report, err = bridge.PlanPlatformSync(m)
+			}
 		} else {
 			report, err = bridge.SyncPlatformConfigs(m)
 		}
@@ -427,8 +475,36 @@ func run(argv []string) int {
 		return 0
 
 	case "remote":
+		if len(args) > 0 && args[0] == "claude" {
+			fs := flag.NewFlagSet("remote claude", flag.ContinueOnError)
+			fs.SetOutput(os.Stderr)
+			target := fs.String("target", "", "SSH host alias or user@host")
+			mode := fs.String("mode", "", "init missing settings or adopt an existing provider")
+			write := fs.Bool("write", false, "create or back up and switch remote Claude settings")
+			confirmProtocol := fs.Bool("confirm-anthropic-compatible", false, "confirm the remote CPA supports Claude's Anthropic API")
+			confirmAuth := fs.Bool("confirm-external-auth", false, "confirm external Claude credentials for init")
+			confirmReplace := fs.Bool("confirm-replace-provider", false, "confirm replacement of the existing Claude provider for adopt")
+			jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+			if err := fs.Parse(args[1:]); err != nil || fs.NArg() != 0 {
+				return 2
+			}
+			secondConfirmation := *confirmAuth
+			if *mode == "adopt" {
+				secondConfirmation = *confirmReplace
+			}
+			report, err := bridge.RemoteClaudeSettings(*target, *mode, *write, *confirmProtocol, secondConfirmation)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bridge remote claude: %v\n", err)
+				return 1
+			}
+			if *jsonOut {
+				return printJSON(report)
+			}
+			fmt.Printf("%s Claude settings on %s: %s\n", report.Action, report.Target, report.Detail)
+			return 0
+		}
 		if len(args) == 0 || (args[0] != "scan" && args[0] != "install" && args[0] != "sync") {
-			fmt.Fprintln(os.Stderr, "bridge remote: expected scan, install or sync")
+			fmt.Fprintln(os.Stderr, "bridge remote: expected scan, install, sync or claude")
 			return 2
 		}
 		fs := flag.NewFlagSet("remote "+args[0], flag.ContinueOnError)
@@ -454,7 +530,7 @@ func run(argv []string) int {
 			} else {
 				fmt.Printf("%s: %s\n", report.Target, report.Detail)
 			}
-			if *write && (!report.RemoteReady || report.Platforms.Failed > 0) {
+			if *write && report.Action == "needs_attention" {
 				return 1
 			}
 			return 0
